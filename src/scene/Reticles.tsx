@@ -29,13 +29,19 @@ function Reticle({ node, emphasized, onSelect }: ReticleProps) {
   const ringMat = useRef<THREE.MeshBasicMaterial>(null)
   const outerRingMat = useRef<THREE.MeshBasicMaterial>(null)
   const htmlRef = useRef<HTMLDivElement>(null)
+  const tagRef = useRef<HTMLDivElement>(null)
   const baseOpacity = emphasized ? 0.95 : 0.5
+  // Lock-on flash: 1 at the moment a tag (re)enters the glass, decaying to 0.
+  const flash = useRef(0)
+  const prevFactor = useRef(0)
+  const hudColor = useMemo(() => new THREE.Color(HUD), [])
+  const flashColor = useMemo(() => new THREE.Color('#ffffff'), [])
   const pos = useMemo(() => new THREE.Vector3(node.x!, node.y!, node.z!), [node])
   const projected = useMemo(() => new THREE.Vector3(), [])
   const toNode = useMemo(() => new THREE.Vector3(), [])
   const forward = useMemo(() => new THREE.Vector3(), [])
 
-  useFrame(({ camera, size }) => {
+  useFrame(({ camera, size }, delta) => {
     camera.getWorldDirection(forward)
     const behind = forward.dot(toNode.copy(pos).sub(camera.position)) < 0
     let factor = 0
@@ -47,13 +53,37 @@ function Reticle({ node, emphasized, onSelect }: ReticleProps) {
       const t = THREE.MathUtils.clamp((edge - FADE_GONE) / (FADE_FULL - FADE_GONE), 0, 1)
       factor = t * t * (3 - 2 * t)
     }
-    if (ringsRef.current) ringsRef.current.visible = factor > 0.01
-    if (ringMat.current) ringMat.current.opacity = baseOpacity * factor
-    if (outerRingMat.current) outerRingMat.current.opacity = 0.35 * factor
+
+    // Acquisition flash on the hidden -> shown transition: the ring starts
+    // oversized, white-hot, and over-bright, then contracts onto the target
+    // while the label pops with a glow.
+    if (factor > 0.01 && prevFactor.current <= 0.01) flash.current = 1
+    else flash.current = Math.max(0, flash.current - delta / 0.6)
+    prevFactor.current = factor
+    const f = flash.current
+
+    if (ringsRef.current) {
+      ringsRef.current.visible = factor > 0.01
+      ringsRef.current.scale.setScalar(1 + 0.8 * f)
+    }
+    if (ringMat.current) {
+      ringMat.current.opacity = Math.min(1, baseOpacity * factor * (1 + 3 * f))
+      ringMat.current.color.copy(hudColor).lerp(flashColor, f)
+    }
+    if (outerRingMat.current) {
+      outerRingMat.current.opacity = Math.min(1, 0.35 * factor * (1 + 3 * f))
+      outerRingMat.current.color.copy(hudColor).lerp(flashColor, f)
+    }
     if (htmlRef.current) {
       htmlRef.current.style.opacity = String(factor)
+      htmlRef.current.style.filter = f > 0.01 ? `brightness(${1 + 2.5 * f})` : ''
       // visibility (not display) so layout is stable; also kills clicks while hidden
       htmlRef.current.style.visibility = factor > 0.01 ? 'visible' : 'hidden'
+    }
+    if (tagRef.current) {
+      tagRef.current.style.transform = f > 0.01 ? `scale(${1 + 0.35 * f})` : ''
+      tagRef.current.style.boxShadow =
+        f > 0.01 ? `0 0 ${16 * f}px rgba(127, 212, 255, ${0.9 * f})` : ''
     }
   })
 
@@ -101,6 +131,7 @@ function Reticle({ node, emphasized, onSelect }: ReticleProps) {
           </svg>
           <div
             data-testid="node-tag"
+            ref={tagRef}
             onClick={(e) => {
               // Don't let the click bubble to the canvas — R3F's
               // onPointerMissed would immediately clear the selection.
@@ -111,6 +142,7 @@ function Reticle({ node, emphasized, onSelect }: ReticleProps) {
               position: 'absolute',
               left: 34,
               top: -46,
+              transformOrigin: 'left center',
               pointerEvents: 'auto',
               cursor: 'pointer',
               whiteSpace: 'nowrap',
