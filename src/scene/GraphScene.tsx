@@ -4,13 +4,17 @@ import { Nodes } from './Nodes'
 import { Edges } from './Edges'
 import { Reticles } from './Reticles'
 import { ShipCamera } from './ShipCamera'
+import { TagSelector } from './TagSelector'
 
 interface Props {
   graph: Graph
   currentNode: GraphNode
   targetNode: GraphNode | null
-  destinationNode: GraphNode | null
   selectedId: string | null
+  taggedIds: string[]
+  maxTags: number
+  selectionPaused: boolean
+  onTaggedChange: (ids: string[]) => void
   onSelect: (id: string) => void
   onTravel: (id: string) => void
   onArrive: () => void
@@ -20,24 +24,16 @@ export function GraphScene({
   graph,
   currentNode,
   targetNode,
-  destinationNode,
   selectedId,
+  taggedIds,
+  maxTags,
+  selectionPaused,
+  onTaggedChange,
   onSelect,
   onTravel,
   onArrive,
 }: Props) {
   const traveling = targetNode !== null
-
-  // Parked: tag the travel lanes out of here (plus whatever is inspected).
-  // In flight: tag only the journey's destination.
-  const neighborIds = graph.neighbors.get(currentNode.id) ?? []
-  const taggedIds = traveling
-    ? destinationNode
-      ? [destinationNode.id]
-      : []
-    : selectedId && selectedId !== currentNode.id && !neighborIds.includes(selectedId)
-      ? [...neighborIds, selectedId]
-      : neighborIds
 
   return (
     <>
@@ -49,6 +45,13 @@ export function GraphScene({
       <Edges graph={graph} currentId={currentNode.id} />
       <Nodes graph={graph} selectedId={selectedId} onSelect={onSelect} onTravel={onTravel} />
       <Reticles graph={graph} taggedIds={taggedIds} selectedId={selectedId} onSelect={onSelect} />
+      <TagSelector
+        graph={graph}
+        currentId={currentNode.id}
+        maxTags={maxTags}
+        paused={traveling || selectionPaused}
+        onChange={onTaggedChange}
+      />
       <ShipCamera currentNode={currentNode} targetNode={targetNode} onArrive={onArrive} />
     </>
   )

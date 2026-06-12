@@ -4,18 +4,12 @@ import { Billboard, Html } from '@react-three/drei'
 import * as THREE from 'three'
 import type { Graph, GraphNode } from '../types'
 import { NODE_RADIUS } from './Nodes'
+import { screenEdgeFactor } from './screenFade'
 
 // Targeting reticles are instrumentation drawn by the ship's window, so they
 // use the HUD's color regardless of what they're pointing at.
 const HUD = '#7fd4ff'
 const HUD_TEXT = '#aadfff'
-
-// Instrumentation can't paint beyond the glass: reticles fade out as their
-// node approaches the viewport border (gone at FADE_GONE px, full at
-// FADE_FULL px) and come back when it returns. A fade band instead of a
-// hard toggle avoids flicker when a node hovers at the threshold.
-const FADE_GONE = 100
-const FADE_FULL = 140
 
 interface ReticleProps {
   node: GraphNode
@@ -37,22 +31,9 @@ function Reticle({ node, emphasized, onSelect }: ReticleProps) {
   const hudColor = useMemo(() => new THREE.Color(HUD), [])
   const flashColor = useMemo(() => new THREE.Color('#ffffff'), [])
   const pos = useMemo(() => new THREE.Vector3(node.x!, node.y!, node.z!), [node])
-  const projected = useMemo(() => new THREE.Vector3(), [])
-  const toNode = useMemo(() => new THREE.Vector3(), [])
-  const forward = useMemo(() => new THREE.Vector3(), [])
 
   useFrame(({ camera, size }, delta) => {
-    camera.getWorldDirection(forward)
-    const behind = forward.dot(toNode.copy(pos).sub(camera.position)) < 0
-    let factor = 0
-    if (!behind) {
-      projected.copy(pos).project(camera)
-      const px = (projected.x * 0.5 + 0.5) * size.width
-      const py = (-projected.y * 0.5 + 0.5) * size.height
-      const edge = Math.min(px, size.width - px, py, size.height - py)
-      const t = THREE.MathUtils.clamp((edge - FADE_GONE) / (FADE_FULL - FADE_GONE), 0, 1)
-      factor = t * t * (3 - 2 * t)
-    }
+    const factor = screenEdgeFactor(pos, camera, size)
 
     // Acquisition flash on the hidden -> shown transition: the ring starts
     // oversized, white-hot, and over-bright, then contracts onto the target

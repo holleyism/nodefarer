@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Box } from '@mui/material'
+import type { ViewMode } from './types'
 import { Canvas } from '@react-three/fiber'
 import { generateGraph } from './data/generateGraph'
 import { shortestPath } from './data/shortestPath'
@@ -20,11 +21,26 @@ export default function App() {
   // excluded). Empty array = parked.
   const [route, setRoute] = useState<string[]>([])
   const traveling = route.length > 0
+  // How the viewport picks highlights, the proximity-mode reticle budget,
+  // and the lock set chosen by TagSelector.
+  const [viewMode, setViewMode] = useState<ViewMode>('proximity')
+  const [maxTags, setMaxTags] = useState(10)
+  const [taggedIds, setTaggedIds] = useState<string[]>([])
 
   const currentNode = graph.nodeById.get(currentId)!
   const selectedNode = selectedId ? graph.nodeById.get(selectedId)! : null
   const nextHopNode = traveling ? graph.nodeById.get(route[0])! : null
   const destinationNode = traveling ? graph.nodeById.get(route[route.length - 1])! : null
+
+  // In flight only the destination stays locked; parked, the inspected node
+  // keeps its reticle even when it falls outside the closest-N budget.
+  const displayTaggedIds = traveling
+    ? destinationNode
+      ? [destinationNode.id]
+      : []
+    : selectedId && selectedId !== currentId && !taggedIds.includes(selectedId)
+      ? [...taggedIds, selectedId]
+      : taggedIds
 
   const handleSelect = (id: string) => {
     if (!traveling) setSelectedId(id)
@@ -60,8 +76,11 @@ export default function App() {
           graph={graph}
           currentNode={currentNode}
           targetNode={nextHopNode}
-          destinationNode={destinationNode}
           selectedId={selectedId}
+          taggedIds={displayTaggedIds}
+          maxTags={maxTags}
+          selectionPaused={viewMode !== 'proximity'}
+          onTaggedChange={setTaggedIds}
           onSelect={handleSelect}
           onTravel={handleTravel}
           onArrive={handleArrive}
@@ -73,6 +92,10 @@ export default function App() {
         selectedNode={selectedNode}
         destination={destinationNode}
         hopsLeft={route.length}
+        viewMode={viewMode}
+        onViewModeChange={setViewMode}
+        maxTags={maxTags}
+        onMaxTagsChange={setMaxTags}
         onSelect={handleSelect}
         onTravel={handleTravel}
         onClosePanel={() => setSelectedId(null)}

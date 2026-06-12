@@ -1,5 +1,6 @@
 import { Box, Chip, LinearProgress, Paper, Stack, Typography } from '@mui/material'
-import type { Graph, GraphNode } from '../types'
+import type { Graph, GraphNode, ViewMode } from '../types'
+import { BottomBar } from './BottomBar'
 import { NodePanel } from './NodePanel'
 import { ViewportFrame } from './ViewportFrame'
 
@@ -13,12 +14,29 @@ interface Props {
   selectedNode: GraphNode | null
   destination: GraphNode | null
   hopsLeft: number
+  viewMode: ViewMode
+  onViewModeChange: (m: ViewMode) => void
+  maxTags: number
+  onMaxTagsChange: (n: number) => void
   onSelect: (id: string) => void
   onTravel: (id: string) => void
   onClosePanel: () => void
 }
 
-export function Hud({ graph, currentNode, selectedNode, destination, hopsLeft, onSelect, onTravel, onClosePanel }: Props) {
+export function Hud({
+  graph,
+  currentNode,
+  selectedNode,
+  destination,
+  hopsLeft,
+  viewMode,
+  onViewModeChange,
+  maxTags,
+  onMaxTagsChange,
+  onSelect,
+  onTravel,
+  onClosePanel,
+}: Props) {
   const traveling = destination !== null
   const neighborCount = graph.neighbors.get(currentNode.id)?.length ?? 0
 
@@ -79,30 +97,13 @@ export function Hud({ graph, currentNode, selectedNode, destination, hopsLeft, o
         </Paper>
       )}
 
-      {/* Brand — bottom right */}
-      <Typography
-        variant="overline"
-        sx={{
-          position: 'absolute',
-          bottom: 28,
-          right: 28,
-          color: 'text.secondary',
-          letterSpacing: 4,
-          pointerEvents: 'none',
-        }}
-      >
-        Nodefarer
-      </Typography>
-
-      {/* Controls help — bottom left */}
-      <Box sx={{ position: 'absolute', bottom: 28, left: 28, pointerEvents: 'none' }}>
-        <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block' }}>
-          Drag — look around · Scroll — zoom (FOV)
-        </Typography>
-        <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block' }}>
-          Click node — inspect · Double-click — travel
-        </Typography>
-      </Box>
+      {/* Dashboard — console, controls legend, wordmark */}
+      <BottomBar
+        viewMode={viewMode}
+        onViewModeChange={onViewModeChange}
+        maxTags={maxTags}
+        onMaxTagsChange={onMaxTagsChange}
+      />
 
       {selectedNode && (
         <NodePanel
