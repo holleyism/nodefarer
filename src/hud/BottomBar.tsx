@@ -1,5 +1,6 @@
 import { Box, Typography } from '@mui/material'
 import { OptionsMenu } from './OptionsMenu'
+import { PANEL_Z } from './hudStyles'
 import type { ViewMode } from '../types'
 
 // The dashboard: a near-opaque strip under the window glass. Home for the
@@ -30,6 +31,7 @@ export function BottomBar({ viewMode, onViewModeChange, maxTags, onMaxTagsChange
         bgcolor: 'rgba(5, 11, 22, 0.94)',
         borderTop: '1px solid rgba(127, 212, 255, 0.25)',
         backdropFilter: 'blur(8px)',
+        zIndex: PANEL_Z,
       }}
     >
       <OptionsMenu

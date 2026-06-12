@@ -5,6 +5,7 @@ import * as THREE from 'three'
 import type { GraphNode } from '../types'
 import { reticleVisibility, shipBus } from '../scene/shipBus'
 import { BAR_HEIGHT } from './BottomBar'
+import { PANEL_Z } from './hudStyles'
 
 const HUD = '#7fd4ff'
 const MONO = '10px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace'
@@ -78,6 +79,7 @@ export function Radar({ label, targets }: Props) {
         width: 150,
         pointerEvents: 'none',
         textAlign: 'center',
+        zIndex: PANEL_Z,
       }}
     >
       <Box
