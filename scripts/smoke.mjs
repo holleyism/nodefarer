@@ -46,5 +46,16 @@ if (chipCount > 0) {
   console.log('ARRIVED AT:', newName)
 }
 
+// Multi-hop journey via the dev hook: cross the universe to Helios Prime
+// and verify the route is flown hop by hop (banner shows hops remaining).
+console.log('MULTI-HOP: traveling to 9-0 (Helios Prime)')
+await page.evaluate(() => window.__nodefarer.travelTo('9-0'))
+await page.waitForSelector('text=hops remaining', { timeout: 5000 })
+await page.screenshot({ path: `${outDir}/5-multihop.png` })
+await page.waitForSelector('text=Traveling to', { state: 'detached', timeout: 120000 })
+await page.waitForTimeout(500)
+console.log('MULTI-HOP ARRIVED AT:', await page.locator('h6').first().textContent())
+await page.screenshot({ path: `${outDir}/6-multihop-arrived.png` })
+
 console.log('CONSOLE ERRORS:', consoleErrors.length ? consoleErrors : 'none')
 await browser.close()

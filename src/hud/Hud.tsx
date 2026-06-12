@@ -10,14 +10,15 @@ interface Props {
   graph: Graph
   currentNode: GraphNode
   selectedNode: GraphNode | null
-  targetNode: GraphNode | null
+  destination: GraphNode | null
+  hopsLeft: number
   onSelect: (id: string) => void
   onTravel: (id: string) => void
   onClosePanel: () => void
 }
 
-export function Hud({ graph, currentNode, selectedNode, targetNode, onSelect, onTravel, onClosePanel }: Props) {
-  const traveling = targetNode !== null
+export function Hud({ graph, currentNode, selectedNode, destination, hopsLeft, onSelect, onTravel, onClosePanel }: Props) {
+  const traveling = destination !== null
   const neighborCount = graph.neighbors.get(currentNode.id)?.length ?? 0
 
   return (
@@ -67,11 +68,27 @@ export function Hud({ graph, currentNode, selectedNode, targetNode, onSelect, on
           }}
         >
           <Typography variant="body2" sx={{ mb: 0.5 }}>
-            Traveling to <strong>{targetNode.name}</strong>…
+            Traveling to <strong>{destination.name}</strong>
+            {hopsLeft > 1 ? ` · ${hopsLeft} hops remaining` : ''}…
           </Typography>
           <LinearProgress />
         </Paper>
       )}
+
+      {/* Brand — bottom right */}
+      <Typography
+        variant="overline"
+        sx={{
+          position: 'absolute',
+          bottom: 16,
+          right: 16,
+          color: 'text.secondary',
+          letterSpacing: 4,
+          pointerEvents: 'none',
+        }}
+      >
+        Nodefarer
+      </Typography>
 
       {/* Controls help — bottom left */}
       <Box sx={{ position: 'absolute', bottom: 16, left: 16, pointerEvents: 'none' }}>

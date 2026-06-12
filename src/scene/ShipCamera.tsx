@@ -10,6 +10,7 @@ interface Travel {
   to: THREE.Vector3
   fromQuat: THREE.Quaternion
   faceQuat: THREE.Quaternion
+  turnDuration: number
   flyDuration: number
 }
 
@@ -46,6 +47,9 @@ export function ShipCamera({ currentNode, targetNode, onArrive }: Props) {
     const to = new THREE.Vector3(targetNode.x!, targetNode.y!, targetNode.z!)
     const m = new THREE.Matrix4().lookAt(from, to, new THREE.Vector3(0, 1, 0))
     const faceQuat = new THREE.Quaternion().setFromRotationMatrix(m)
+    // Scale the turn to the angle so small course corrections at journey
+    // waypoints don't stall the flight.
+    const angle = camera.quaternion.angleTo(faceQuat)
     travel.current = {
       phase: 'turn',
       t: 0,
@@ -53,6 +57,7 @@ export function ShipCamera({ currentNode, targetNode, onArrive }: Props) {
       to,
       fromQuat: camera.quaternion.clone(),
       faceQuat,
+      turnDuration: THREE.MathUtils.clamp(angle * 0.45, 0.15, 0.9),
       flyDuration: THREE.MathUtils.clamp(from.distanceTo(to) / 45, 1.2, 4),
     }
   }, [targetNode, camera])
@@ -103,7 +108,7 @@ export function ShipCamera({ currentNode, targetNode, onArrive }: Props) {
     const tr = travel.current
     if (tr) {
       if (tr.phase === 'turn') {
-        tr.t = Math.min(1, tr.t + delta / 0.7)
+        tr.t = Math.min(1, tr.t + delta / tr.turnDuration)
         camera.quaternion.slerpQuaternions(tr.fromQuat, tr.faceQuat, smoothstep(tr.t))
         if (tr.t >= 1) {
           tr.phase = 'fly'
