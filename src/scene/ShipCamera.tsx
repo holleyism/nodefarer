@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react'
 import { useFrame, useThree } from '@react-three/fiber'
 import * as THREE from 'three'
 import type { GraphNode } from '../types'
+import { shipBus } from './shipBus'
 
 interface Travel {
   phase: 'turn' | 'fly'
@@ -205,6 +206,8 @@ export function ShipCamera({ currentNode, targetNode, following, followSignal, o
       if (am.t >= 1) aim.current = null
     }
     camera.rotation.set(look.current.pitch, look.current.yaw, 0, 'YXZ')
+    shipBus.position.copy(camera.position)
+    shipBus.quaternion.copy(camera.quaternion)
   })
 
   return null

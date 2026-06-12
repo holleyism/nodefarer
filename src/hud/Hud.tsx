@@ -2,6 +2,7 @@ import { Box, Chip, LinearProgress, Paper, Stack, Typography } from '@mui/materi
 import type { Graph, GraphNode, ViewMode } from '../types'
 import { BottomBar } from './BottomBar'
 import { NodePanel } from './NodePanel'
+import { Radar } from './Radar'
 import { ViewportFrame } from './ViewportFrame'
 
 function dist(a: GraphNode, b: GraphNode) {
@@ -42,7 +43,12 @@ export function Hud({
   onClosePanel,
 }: Props) {
   const traveling = destination !== null
-  const neighborCount = graph.neighbors.get(currentNode.id)?.length ?? 0
+  // Radar source: immediate neighbors of the current node. Future sources
+  // (search hits, clusters, semantic matches) swap in here.
+  const radarTargets = (graph.neighbors.get(currentNode.id) ?? []).map(
+    (id) => graph.nodeById.get(id)!,
+  )
+  const neighborCount = radarTargets.length
 
   return (
     <>
@@ -123,6 +129,9 @@ export function Hud({
           <LinearProgress />
         </Paper>
       )}
+
+      {/* Radar — bottom right, above the dashboard */}
+      <Radar label="adjacent" targets={radarTargets} />
 
       {/* Dashboard — console, controls legend, wordmark */}
       <BottomBar
