@@ -1,6 +1,7 @@
 import { Box, Chip, LinearProgress, Paper, Stack, Typography } from '@mui/material'
 import type { Graph, GraphNode, ViewMode } from '../types'
 import { BottomBar } from './BottomBar'
+import { HUD_TEXT, MONO_SMALL, PANEL_SX, SECTION_LABEL_SX } from './hudStyles'
 import { NodePanel } from './NodePanel'
 import { Radar } from './Radar'
 import { ViewportFrame } from './ViewportFrame'
@@ -15,7 +16,6 @@ interface Props {
   selectedNode: GraphNode | null
   destination: GraphNode | null
   hopsLeft: number
-  taggedIds: string[]
   viewMode: ViewMode
   onViewModeChange: (m: ViewMode) => void
   maxTags: number
@@ -33,7 +33,6 @@ export function Hud({
   selectedNode,
   destination,
   hopsLeft,
-  taggedIds,
   viewMode,
   onViewModeChange,
   maxTags,
@@ -67,21 +66,22 @@ export function Hud({
           px: 2,
           py: 1,
           cursor: 'pointer',
-          bgcolor: 'rgba(8, 14, 28, 0.88)',
-          border: '1px solid rgba(127, 212, 255, 0.25)',
-          backdropFilter: 'blur(6px)',
+          ...PANEL_SX,
           '&:hover': { borderColor: 'primary.main' },
         }}
       >
-        <Typography variant="overline" sx={{ color: 'text.secondary', lineHeight: 1 }}>
-          Current node
-        </Typography>
+        <Typography sx={SECTION_LABEL_SX}>Current node</Typography>
         <Stack direction="row" spacing={1} alignItems="center">
           <Box sx={{ width: 10, height: 10, borderRadius: '50%', bgcolor: currentNode.color }} />
-          <Typography variant="h6" sx={{ color: '#aadfff' }}>
+          <Typography variant="h6" sx={{ color: HUD_TEXT }}>
             {currentNode.name}
           </Typography>
-          <Chip label={`${neighborCount} links`} size="small" variant="outlined" />
+          <Chip
+            label={`${neighborCount} links`}
+            size="small"
+            variant="outlined"
+            sx={{ font: MONO_SMALL, letterSpacing: 1 }}
+          />
         </Stack>
       </Paper>
 
@@ -97,8 +97,7 @@ export function Hud({
             px: 3,
             py: 1,
             minWidth: 240,
-            bgcolor: 'rgba(8, 14, 28, 0.88)',
-            border: '1px solid rgba(127, 212, 255, 0.25)',
+            ...PANEL_SX,
           }}
         >
           <Stack direction="row" spacing={1.5} alignItems="center" sx={{ mb: 0.5 }}>
@@ -133,7 +132,7 @@ export function Hud({
       )}
 
       {/* Radar — bottom right, above the dashboard */}
-      <Radar label="adjacent" targets={radarTargets} lockedIds={taggedIds} />
+      <Radar label="adjacent" targets={radarTargets} />
 
       {/* Dashboard — console, controls legend, wordmark */}
       <BottomBar

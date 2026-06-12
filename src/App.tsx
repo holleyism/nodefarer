@@ -110,7 +110,6 @@ export default function App() {
         selectedNode={selectedNode}
         destination={destinationNode}
         hopsLeft={route.length}
-        taggedIds={displayTaggedIds}
         viewMode={viewMode}
         onViewModeChange={setViewMode}
         maxTags={maxTags}

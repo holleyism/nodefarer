@@ -13,6 +13,9 @@ import {
   Typography,
 } from '@mui/material'
 import type { GraphNode } from '../types'
+import { HUD_TEXT, MONO, MONO_SMALL, PANEL_SX, SECTION_LABEL_SX } from './hudStyles'
+
+const KEY_CELL_SX = { ...SECTION_LABEL_SX, border: 0, py: 0.4 }
 
 interface Props {
   node: GraphNode
@@ -34,15 +37,13 @@ export function NodePanel({ node, isCurrent, isNeighbor, distance, traveling, on
         right: 28,
         width: 300,
         p: 2,
-        bgcolor: 'rgba(8, 14, 28, 0.88)',
-        border: '1px solid rgba(127, 212, 255, 0.25)',
-        backdropFilter: 'blur(6px)',
+        ...PANEL_SX,
       }}
     >
       <Stack direction="row" alignItems="center" justifyContent="space-between">
         <Stack direction="row" spacing={1} alignItems="center">
           <Box sx={{ width: 10, height: 10, borderRadius: '50%', bgcolor: node.color }} />
-          <Typography variant="h6" sx={{ color: '#aadfff' }}>
+          <Typography variant="h6" sx={{ color: HUD_TEXT }}>
             {node.name}
           </Typography>
         </Stack>
@@ -51,22 +52,26 @@ export function NodePanel({ node, isCurrent, isNeighbor, distance, traveling, on
         </IconButton>
       </Stack>
       <Stack direction="row" spacing={1} sx={{ mb: 1.5 }}>
-        <Chip label={node.type} size="small" variant="outlined" />
-        {isCurrent && <Chip label="you are here" size="small" color="primary" />}
-        {isNeighbor && !isCurrent && <Chip label="adjacent" size="small" variant="outlined" />}
+        <Chip label={node.type} size="small" variant="outlined" sx={{ font: MONO_SMALL, letterSpacing: 1 }} />
+        {isCurrent && (
+          <Chip label="you are here" size="small" color="primary" sx={{ font: MONO_SMALL, letterSpacing: 1 }} />
+        )}
+        {isNeighbor && !isCurrent && (
+          <Chip label="adjacent" size="small" variant="outlined" sx={{ font: MONO_SMALL, letterSpacing: 1 }} />
+        )}
       </Stack>
       <Divider sx={{ mb: 1 }} />
       <Table size="small">
         <TableBody>
           {!isCurrent && (
             <TableRow>
-              <TableCell sx={{ color: 'text.secondary', border: 0, py: 0.4 }}>Distance</TableCell>
+              <TableCell sx={KEY_CELL_SX}>Distance</TableCell>
               <TableCell sx={{ border: 0, py: 0.4 }}>{distance.toFixed(1)} u</TableCell>
             </TableRow>
           )}
           {Object.entries(node.properties).map(([k, v]) => (
             <TableRow key={k}>
-              <TableCell sx={{ color: 'text.secondary', border: 0, py: 0.4 }}>{k}</TableCell>
+              <TableCell sx={KEY_CELL_SX}>{k}</TableCell>
               <TableCell sx={{ border: 0, py: 0.4 }}>{v}</TableCell>
             </TableRow>
           ))}
@@ -74,7 +79,13 @@ export function NodePanel({ node, isCurrent, isNeighbor, distance, traveling, on
       </Table>
       {!isCurrent && (
         <Box sx={{ mt: 1.5 }}>
-          <Button fullWidth variant="contained" disabled={traveling} onClick={() => onTravel(node.id)}>
+          <Button
+            fullWidth
+            variant="contained"
+            disabled={traveling}
+            onClick={() => onTravel(node.id)}
+            sx={{ font: MONO, letterSpacing: 2 }}
+          >
             Travel to {node.name}
           </Button>
         </Box>

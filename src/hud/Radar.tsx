@@ -3,7 +3,7 @@ import { Box, Typography } from '@mui/material'
 import { Canvas, useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
 import type { GraphNode } from '../types'
-import { shipBus } from '../scene/shipBus'
+import { reticleVisibility, shipBus } from '../scene/shipBus'
 import { BAR_HEIGHT } from './BottomBar'
 
 const HUD = '#7fd4ff'
@@ -12,15 +12,18 @@ const MONO = '10px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace'
 const invQuat = new THREE.Quaternion()
 const dir = new THREE.Vector3()
 
+const HUD_COLOR = new THREE.Color(HUD)
+const LOCK_COLOR = new THREE.Color('#e8f7ff')
+
 // Blips ride the unit sphere: each target's world direction from the ship,
 // rotated into view space. Ahead = front of the sphere (toward the viewer),
 // behind = far side, dimmed. Positions update per frame from shipBus without
-// touching React. Reticle-locked targets render bigger, whiter, and resist
-// the depth dimming — the instruments agree on what's locked.
-function Blips({ targets, lockedIds }: { targets: GraphNode[]; lockedIds: string[] }) {
+// touching React. Targets whose reticle is actually visible on the glass
+// right now (per reticleVisibility) render bigger, whiter, and resist the
+// depth dimming — the instruments agree on what's locked.
+function Blips({ targets }: { targets: GraphNode[] }) {
   const group = useRef<THREE.Group>(null)
   const blipGeo = useMemo(() => new THREE.SphereGeometry(0.06, 8, 8), [])
-  const locked = useMemo(() => new Set(lockedIds), [lockedIds])
 
   useFrame(() => {
     const g = group.current
@@ -36,22 +39,22 @@ function Blips({ targets, lockedIds }: { targets: GraphNode[]; lockedIds: string
         .applyQuaternion(invQuat)
       // Camera space looks down -Z; flip so "ahead" faces the radar viewer.
       mesh.position.set(dir.x, dir.y, -dir.z)
+      const lock = reticleVisibility.get(node.id) ?? 0
+      mesh.scale.setScalar(1 + 0.5 * lock)
       const mat = mesh.material as THREE.MeshBasicMaterial
+      mat.color.copy(HUD_COLOR).lerp(LOCK_COLOR, lock)
       const depth = 0.3 + 0.7 * ((mesh.position.z + 1) / 2)
-      mat.opacity = locked.has(node.id) ? Math.max(depth, 0.85) : depth
+      mat.opacity = Math.max(depth, 0.85 * lock)
     })
   })
 
   return (
     <group ref={group}>
-      {targets.map((t) => {
-        const isLocked = locked.has(t.id)
-        return (
-          <mesh key={t.id} geometry={blipGeo} scale={isLocked ? 1.5 : 1}>
-            <meshBasicMaterial color={isLocked ? '#e8f7ff' : HUD} transparent />
-          </mesh>
-        )
-      })}
+      {targets.map((t) => (
+        <mesh key={t.id} geometry={blipGeo}>
+          <meshBasicMaterial color={HUD} transparent />
+        </mesh>
+      ))}
     </group>
   )
 }
@@ -59,14 +62,13 @@ function Blips({ targets, lockedIds }: { targets: GraphNode[]; lockedIds: string
 interface Props {
   label: string
   targets: GraphNode[]
-  lockedIds: string[]
 }
 
 // The radar: a sphere of nearby space drawn by the window, bottom right.
 // Not an input device — purely instrumentation. `targets` is whatever the
 // active radar source emits (immediate neighbors today; search results,
 // clusters, semantic matches later).
-export function Radar({ label, targets, lockedIds }: Props) {
+export function Radar({ label, targets }: Props) {
   return (
     <Box
       sx={{
@@ -109,7 +111,7 @@ export function Radar({ label, targets, lockedIds }: Props) {
             <sphereGeometry args={[0.035, 8, 8]} />
             <meshBasicMaterial color="#ffffff" transparent opacity={0.9} />
           </mesh>
-          <Blips targets={targets} lockedIds={lockedIds} />
+          <Blips targets={targets} />
         </Canvas>
       </Box>
       <Typography sx={{ font: MONO, letterSpacing: 1.5, color: 'text.secondary', mt: 0.5 }}>

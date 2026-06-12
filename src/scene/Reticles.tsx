@@ -1,10 +1,11 @@
-import { useMemo, useRef } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import { useFrame } from '@react-three/fiber'
 import { Billboard, Html } from '@react-three/drei'
 import * as THREE from 'three'
 import type { Graph, GraphNode } from '../types'
 import { NODE_RADIUS } from './Nodes'
 import { screenEdgeFactor } from './screenFade'
+import { reticleVisibility } from './shipBus'
 
 // Targeting reticles are instrumentation drawn by the ship's window, so they
 // use the HUD's color regardless of what they're pointing at.
@@ -30,10 +31,17 @@ function Reticle({ node, emphasized, onSelect }: ReticleProps) {
   const prevFactor = useRef(0)
   const hudColor = useMemo(() => new THREE.Color(HUD), [])
   const flashColor = useMemo(() => new THREE.Color('#ffffff'), [])
+
+  useEffect(() => {
+    return () => {
+      reticleVisibility.delete(node.id)
+    }
+  }, [node.id])
   const pos = useMemo(() => new THREE.Vector3(node.x!, node.y!, node.z!), [node])
 
   useFrame(({ camera, size }, delta) => {
     const factor = screenEdgeFactor(pos, camera, size)
+    reticleVisibility.set(node.id, factor)
 
     // Acquisition flash on the hidden -> shown transition: the ring starts
     // oversized, white-hot, and over-bright, then contracts onto the target
