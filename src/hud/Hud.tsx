@@ -1,6 +1,7 @@
 import { Box, Chip, LinearProgress, Paper, Stack, Typography } from '@mui/material'
 import type { Graph, GraphNode } from '../types'
 import { NodePanel } from './NodePanel'
+import { ViewportFrame } from './ViewportFrame'
 
 function dist(a: GraphNode, b: GraphNode) {
   return Math.hypot(a.x! - b.x!, a.y! - b.y!, a.z! - b.z!)
@@ -23,14 +24,16 @@ export function Hud({ graph, currentNode, selectedNode, destination, hopsLeft, o
 
   return (
     <>
+      <ViewportFrame />
+
       {/* Current node — top left */}
       <Paper
         elevation={4}
         onClick={() => onSelect(currentNode.id)}
         sx={{
           position: 'absolute',
-          top: 16,
-          left: 16,
+          top: 28,
+          left: 28,
           px: 2,
           py: 1,
           cursor: 'pointer',
@@ -44,7 +47,8 @@ export function Hud({ graph, currentNode, selectedNode, destination, hopsLeft, o
           Current node
         </Typography>
         <Stack direction="row" spacing={1} alignItems="center">
-          <Typography variant="h6" sx={{ color: currentNode.color }}>
+          <Box sx={{ width: 10, height: 10, borderRadius: '50%', bgcolor: currentNode.color }} />
+          <Typography variant="h6" sx={{ color: '#aadfff' }}>
             {currentNode.name}
           </Typography>
           <Chip label={`${neighborCount} links`} size="small" variant="outlined" />
@@ -57,7 +61,7 @@ export function Hud({ graph, currentNode, selectedNode, destination, hopsLeft, o
           elevation={4}
           sx={{
             position: 'absolute',
-            top: 16,
+            top: 28,
             left: '50%',
             transform: 'translateX(-50%)',
             px: 3,
@@ -80,8 +84,8 @@ export function Hud({ graph, currentNode, selectedNode, destination, hopsLeft, o
         variant="overline"
         sx={{
           position: 'absolute',
-          bottom: 16,
-          right: 16,
+          bottom: 28,
+          right: 28,
           color: 'text.secondary',
           letterSpacing: 4,
           pointerEvents: 'none',
@@ -91,7 +95,7 @@ export function Hud({ graph, currentNode, selectedNode, destination, hopsLeft, o
       </Typography>
 
       {/* Controls help — bottom left */}
-      <Box sx={{ position: 'absolute', bottom: 16, left: 16, pointerEvents: 'none' }}>
+      <Box sx={{ position: 'absolute', bottom: 28, left: 28, pointerEvents: 'none' }}>
         <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block' }}>
           Drag — look around · Scroll — zoom (FOV)
         </Typography>

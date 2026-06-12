@@ -60,6 +60,7 @@ export default function App() {
           graph={graph}
           currentNode={currentNode}
           targetNode={nextHopNode}
+          destinationNode={destinationNode}
           selectedId={selectedId}
           onSelect={handleSelect}
           onTravel={handleTravel}

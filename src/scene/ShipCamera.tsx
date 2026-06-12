@@ -18,6 +18,12 @@ function smoothstep(t: number) {
   return t * t * (3 - 2 * t)
 }
 
+// The ship hovers above the node rather than sitting at its center —
+// otherwise every departing edge is a line through the camera's own eye
+// and therefore invisible. Hovering also keeps the travel lane in view
+// below the ship during flight.
+const EYE = new THREE.Vector3(0, 5, 0)
+
 interface Props {
   currentNode: GraphNode
   targetNode: GraphNode | null
@@ -37,14 +43,14 @@ export function ShipCamera({ currentNode, targetNode, onArrive }: Props) {
 
   useEffect(() => {
     if (!travel.current) {
-      camera.position.set(currentNode.x!, currentNode.y!, currentNode.z!)
+      camera.position.set(currentNode.x!, currentNode.y!, currentNode.z!).add(EYE)
     }
   }, [currentNode, camera])
 
   useEffect(() => {
     if (!targetNode) return
     const from = camera.position.clone()
-    const to = new THREE.Vector3(targetNode.x!, targetNode.y!, targetNode.z!)
+    const to = new THREE.Vector3(targetNode.x!, targetNode.y!, targetNode.z!).add(EYE)
     const m = new THREE.Matrix4().lookAt(from, to, new THREE.Vector3(0, 1, 0))
     const faceQuat = new THREE.Quaternion().setFromRotationMatrix(m)
     // Scale the turn to the angle so small course corrections at journey

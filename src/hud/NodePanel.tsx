@@ -30,8 +30,8 @@ export function NodePanel({ node, isCurrent, isNeighbor, distance, traveling, on
       elevation={8}
       sx={{
         position: 'absolute',
-        top: 16,
-        right: 16,
+        top: 28,
+        right: 28,
         width: 300,
         p: 2,
         bgcolor: 'rgba(8, 14, 28, 0.88)',
@@ -40,15 +40,18 @@ export function NodePanel({ node, isCurrent, isNeighbor, distance, traveling, on
       }}
     >
       <Stack direction="row" alignItems="center" justifyContent="space-between">
-        <Typography variant="h6" sx={{ color: node.color }}>
-          {node.name}
-        </Typography>
+        <Stack direction="row" spacing={1} alignItems="center">
+          <Box sx={{ width: 10, height: 10, borderRadius: '50%', bgcolor: node.color }} />
+          <Typography variant="h6" sx={{ color: '#aadfff' }}>
+            {node.name}
+          </Typography>
+        </Stack>
         <IconButton size="small" onClick={onClose} aria-label="close">
           ✕
         </IconButton>
       </Stack>
       <Stack direction="row" spacing={1} sx={{ mb: 1.5 }}>
-        <Chip label={node.type} size="small" sx={{ borderColor: node.color, color: node.color }} variant="outlined" />
+        <Chip label={node.type} size="small" variant="outlined" />
         {isCurrent && <Chip label="you are here" size="small" color="primary" />}
         {isNeighbor && !isCurrent && <Chip label="adjacent" size="small" variant="outlined" />}
       </Stack>

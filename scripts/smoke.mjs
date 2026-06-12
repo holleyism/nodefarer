@@ -23,7 +23,7 @@ const currentName = await page.locator('h6').first().textContent()
 console.log('CURRENT NODE:', currentName)
 
 // Click a neighbor label chip (a clickable MUI Chip rendered by drei Html)
-const chips = page.locator(".MuiChip-clickable:visible")
+const chips = page.locator('[data-testid="node-tag"]:visible')
 const chipCount = await chips.count()
 console.log('NEIGHBOR CHIPS:', chipCount)
 if (chipCount > 0) {
