@@ -15,6 +15,7 @@ interface Props {
   selectedNode: GraphNode | null
   destination: GraphNode | null
   hopsLeft: number
+  taggedIds: string[]
   viewMode: ViewMode
   onViewModeChange: (m: ViewMode) => void
   maxTags: number
@@ -32,6 +33,7 @@ export function Hud({
   selectedNode,
   destination,
   hopsLeft,
+  taggedIds,
   viewMode,
   onViewModeChange,
   maxTags,
@@ -131,7 +133,7 @@ export function Hud({
       )}
 
       {/* Radar — bottom right, above the dashboard */}
-      <Radar label="adjacent" targets={radarTargets} />
+      <Radar label="adjacent" targets={radarTargets} lockedIds={taggedIds} />
 
       {/* Dashboard — console, controls legend, wordmark */}
       <BottomBar

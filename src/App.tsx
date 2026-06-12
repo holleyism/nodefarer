@@ -36,9 +36,10 @@ export default function App() {
   const nextHopNode = traveling ? graph.nodeById.get(route[0])! : null
   const destinationNode = traveling ? graph.nodeById.get(route[route.length - 1])! : null
 
-  // Proximity locks stay live in flight, with the destination always held;
-  // parked, the inspected node keeps its reticle even when it falls outside
-  // the closest-N budget.
+  // Locks stay live in flight, with the destination always held; parked,
+  // the inspected node keeps its reticle even when it falls outside the
+  // mode's own pick. Adjacent mode is computed here (it's static per node);
+  // proximity comes from TagSelector's per-frame scan.
   const pinnedId = traveling
     ? destinationNode && destinationNode.id !== currentId
       ? destinationNode.id
@@ -46,8 +47,9 @@ export default function App() {
     : selectedId && selectedId !== currentId
       ? selectedId
       : null
+  const baseTaggedIds = viewMode === 'adjacent' ? (graph.neighbors.get(currentId) ?? []) : taggedIds
   const displayTaggedIds =
-    pinnedId && !taggedIds.includes(pinnedId) ? [...taggedIds, pinnedId] : taggedIds
+    pinnedId && !baseTaggedIds.includes(pinnedId) ? [...baseTaggedIds, pinnedId] : baseTaggedIds
 
   const handleSelect = (id: string) => {
     if (!traveling) setSelectedId(id)
@@ -108,6 +110,7 @@ export default function App() {
         selectedNode={selectedNode}
         destination={destinationNode}
         hopsLeft={route.length}
+        taggedIds={displayTaggedIds}
         viewMode={viewMode}
         onViewModeChange={setViewMode}
         maxTags={maxTags}

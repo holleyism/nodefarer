@@ -7,6 +7,7 @@ const MONO_SMALL = '10px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace'
 
 const MODES: Array<{ id: ViewMode; label: string; disabled?: boolean }> = [
   { id: 'proximity', label: 'prox' },
+  { id: 'adjacent', label: 'adj' },
   { id: 'multi', label: 'multi', disabled: true },
   { id: 'cluster', label: 'clust', disabled: true },
   { id: 'semantic', label: 'sem', disabled: true },
@@ -140,6 +141,12 @@ export function OptionsMenu({ viewMode, onViewModeChange, maxTags, onMaxTagsChan
                 Reticles lock the closest {maxTags} bodies on the glass.
               </Typography>
             </>
+          )}
+
+          {viewMode === 'adjacent' && (
+            <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block' }}>
+              Reticles lock only nodes linked to the current node.
+            </Typography>
           )}
         </Box>
       )}
