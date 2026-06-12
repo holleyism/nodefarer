@@ -22,9 +22,18 @@ await page.screenshot({ path: `${outDir}/1-initial.png` })
 const currentName = await page.locator('h6').first().textContent()
 console.log('CURRENT NODE:', currentName)
 
-// Click a neighbor label chip (a clickable MUI Chip rendered by drei Html)
+// Click a neighbor tag. Tags fade out near the viewport border, so spin
+// the view until one is inside the safe zone.
 const chips = page.locator('[data-testid="node-tag"]:visible')
-const chipCount = await chips.count()
+let chipCount = await chips.count()
+for (let spin = 0; spin < 12 && chipCount === 0; spin++) {
+  await page.mouse.move(640, 400)
+  await page.mouse.down()
+  for (let i = 1; i <= 8; i++) await page.mouse.move(640 - i * 25, 400, { steps: 1 })
+  await page.mouse.up()
+  await page.waitForTimeout(300)
+  chipCount = await chips.count()
+}
 console.log('NEIGHBOR CHIPS:', chipCount)
 if (chipCount > 0) {
   const targetName = await chips.first().textContent()
