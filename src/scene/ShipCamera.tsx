@@ -8,14 +8,20 @@ interface Travel {
   t: number
   from: THREE.Vector3
   to: THREE.Vector3
-  fromQuat: THREE.Quaternion
-  faceQuat: THREE.Quaternion
+  fromYaw: number
+  fromPitch: number
+  toYaw: number
+  toPitch: number
   turnDuration: number
   flyDuration: number
 }
 
 function smoothstep(t: number) {
   return t * t * (3 - 2 * t)
+}
+
+function wrapPi(a: number) {
+  return ((((a + Math.PI) % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI)) - Math.PI
 }
 
 // The ship hovers above the node rather than sitting at its center —
@@ -30,9 +36,11 @@ interface Props {
   onArrive: () => void
 }
 
-// The "ship": a camera parked at the current node. Free look while parked
-// (drag = yaw/pitch, wheel = FOV zoom). When a travel target is set, it first
-// turns to face the target, then flies the straight line and hands control back.
+// The "ship": a camera parked at the current node. Orientation always lives
+// in user-owned yaw/pitch: free look while parked (drag = look, wheel = FOV
+// zoom), and during travel the turn phase animates that same yaw/pitch to
+// face the next hop, then the fly phase hands the stick back — you can look
+// around mid-flight while the ship follows the lane.
 export function ShipCamera({ currentNode, targetNode, onArrive }: Props) {
   const camera = useThree((s) => s.camera) as THREE.PerspectiveCamera
   const gl = useThree((s) => s.gl)
@@ -53,6 +61,9 @@ export function ShipCamera({ currentNode, targetNode, onArrive }: Props) {
     const to = new THREE.Vector3(targetNode.x!, targetNode.y!, targetNode.z!).add(EYE)
     const m = new THREE.Matrix4().lookAt(from, to, new THREE.Vector3(0, 1, 0))
     const faceQuat = new THREE.Quaternion().setFromRotationMatrix(m)
+    const face = new THREE.Euler().setFromQuaternion(faceQuat, 'YXZ')
+    // Aim via the shortest yaw arc from wherever the user left the view.
+    const toYaw = look.current.yaw + wrapPi(face.y - look.current.yaw)
     // Scale the turn to the angle so small course corrections at journey
     // waypoints don't stall the flight.
     const angle = camera.quaternion.angleTo(faceQuat)
@@ -61,8 +72,10 @@ export function ShipCamera({ currentNode, targetNode, onArrive }: Props) {
       t: 0,
       from,
       to,
-      fromQuat: camera.quaternion.clone(),
-      faceQuat,
+      fromYaw: look.current.yaw,
+      fromPitch: look.current.pitch,
+      toYaw,
+      toPitch: face.x,
       turnDuration: THREE.MathUtils.clamp(angle * 0.45, 0.15, 0.9),
       flyDuration: THREE.MathUtils.clamp(from.distanceTo(to) / 45, 1.2, 4),
     }
@@ -81,7 +94,9 @@ export function ShipCamera({ currentNode, targetNode, onArrive }: Props) {
       lastY = e.clientY
     }
     const onMove = (e: PointerEvent) => {
-      if (!dragging || travel.current) return
+      // Free look while parked or flying; only the brief auto-aim turn at
+      // each waypoint owns the view.
+      if (!dragging || travel.current?.phase === 'turn') return
       const dx = e.clientX - lastX
       const dy = e.clientY - lastY
       lastX = e.clientX
@@ -115,7 +130,9 @@ export function ShipCamera({ currentNode, targetNode, onArrive }: Props) {
     if (tr) {
       if (tr.phase === 'turn') {
         tr.t = Math.min(1, tr.t + delta / tr.turnDuration)
-        camera.quaternion.slerpQuaternions(tr.fromQuat, tr.faceQuat, smoothstep(tr.t))
+        const s = smoothstep(tr.t)
+        look.current.yaw = tr.fromYaw + (tr.toYaw - tr.fromYaw) * s
+        look.current.pitch = tr.fromPitch + (tr.toPitch - tr.fromPitch) * s
         if (tr.t >= 1) {
           tr.phase = 'fly'
           tr.t = 0
@@ -124,17 +141,12 @@ export function ShipCamera({ currentNode, targetNode, onArrive }: Props) {
         tr.t = Math.min(1, tr.t + delta / tr.flyDuration)
         camera.position.lerpVectors(tr.from, tr.to, smoothstep(tr.t))
         if (tr.t >= 1) {
-          // Hand free look back exactly where the flight left the camera pointing.
-          const e = new THREE.Euler().setFromQuaternion(tr.faceQuat, 'YXZ')
-          look.current.yaw = e.y
-          look.current.pitch = e.x
           travel.current = null
           onArriveRef.current()
         }
       }
-    } else {
-      camera.rotation.set(look.current.pitch, look.current.yaw, 0, 'YXZ')
     }
+    camera.rotation.set(look.current.pitch, look.current.yaw, 0, 'YXZ')
   })
 
   return null
