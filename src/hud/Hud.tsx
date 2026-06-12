@@ -18,6 +18,8 @@ interface Props {
   onViewModeChange: (m: ViewMode) => void
   maxTags: number
   onMaxTagsChange: (n: number) => void
+  following: boolean
+  onFollow: () => void
   onSelect: (id: string) => void
   onTravel: (id: string) => void
   onClosePanel: () => void
@@ -33,6 +35,8 @@ export function Hud({
   onViewModeChange,
   maxTags,
   onMaxTagsChange,
+  following,
+  onFollow,
   onSelect,
   onTravel,
   onClosePanel,
@@ -89,10 +93,33 @@ export function Hud({
             border: '1px solid rgba(127, 212, 255, 0.25)',
           }}
         >
-          <Typography variant="body2" sx={{ mb: 0.5 }}>
-            Traveling to <strong>{destination.name}</strong>
-            {hopsLeft > 1 ? ` · ${hopsLeft} hops remaining` : ''}…
-          </Typography>
+          <Stack direction="row" spacing={1.5} alignItems="center" sx={{ mb: 0.5 }}>
+            <Typography variant="body2">
+              Traveling to <strong>{destination.name}</strong>
+              {hopsLeft > 1 ? ` · ${hopsLeft} hops remaining` : ''}…
+            </Typography>
+            {!following && (
+              <Box
+                component="button"
+                onClick={onFollow}
+                sx={{
+                  font: '10px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace',
+                  letterSpacing: 1.5,
+                  textTransform: 'uppercase',
+                  color: '#aadfff',
+                  background: 'transparent',
+                  border: '1px solid rgba(127, 212, 255, 0.45)',
+                  borderRadius: 999,
+                  padding: '2px 10px',
+                  cursor: 'pointer',
+                  whiteSpace: 'nowrap',
+                  '&:hover': { borderColor: '#7fd4ff' },
+                }}
+              >
+                ⌖ follow course
+              </Box>
+            )}
+          </Stack>
           <LinearProgress />
         </Paper>
       )}

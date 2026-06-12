@@ -14,6 +14,9 @@ interface Props {
   taggedIds: string[]
   maxTags: number
   selectionPaused: boolean
+  following: boolean
+  followSignal: number
+  onUnlock: () => void
   onTaggedChange: (ids: string[]) => void
   onSelect: (id: string) => void
   onTravel: (id: string) => void
@@ -28,12 +31,14 @@ export function GraphScene({
   taggedIds,
   maxTags,
   selectionPaused,
+  following,
+  followSignal,
+  onUnlock,
   onTaggedChange,
   onSelect,
   onTravel,
   onArrive,
 }: Props) {
-  const traveling = targetNode !== null
 
   return (
     <>
@@ -49,10 +54,17 @@ export function GraphScene({
         graph={graph}
         currentId={currentNode.id}
         maxTags={maxTags}
-        paused={traveling || selectionPaused}
+        paused={selectionPaused}
         onChange={onTaggedChange}
       />
-      <ShipCamera currentNode={currentNode} targetNode={targetNode} onArrive={onArrive} />
+      <ShipCamera
+        currentNode={currentNode}
+        targetNode={targetNode}
+        following={following}
+        followSignal={followSignal}
+        onUnlock={onUnlock}
+        onArrive={onArrive}
+      />
     </>
   )
 }

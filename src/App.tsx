@@ -26,21 +26,28 @@ export default function App() {
   const [viewMode, setViewMode] = useState<ViewMode>('proximity')
   const [maxTags, setMaxTags] = useState(10)
   const [taggedIds, setTaggedIds] = useState<string[]>([])
+  // Whether the camera is locked to the course while traveling. Dragging
+  // mid-flight unlocks it; "follow course" (or journey's end) re-locks.
+  const [following, setFollowing] = useState(true)
+  const [followSignal, setFollowSignal] = useState(0)
 
   const currentNode = graph.nodeById.get(currentId)!
   const selectedNode = selectedId ? graph.nodeById.get(selectedId)! : null
   const nextHopNode = traveling ? graph.nodeById.get(route[0])! : null
   const destinationNode = traveling ? graph.nodeById.get(route[route.length - 1])! : null
 
-  // In flight only the destination stays locked; parked, the inspected node
-  // keeps its reticle even when it falls outside the closest-N budget.
-  const displayTaggedIds = traveling
-    ? destinationNode
-      ? [destinationNode.id]
-      : []
-    : selectedId && selectedId !== currentId && !taggedIds.includes(selectedId)
-      ? [...taggedIds, selectedId]
-      : taggedIds
+  // Proximity locks stay live in flight, with the destination always held;
+  // parked, the inspected node keeps its reticle even when it falls outside
+  // the closest-N budget.
+  const pinnedId = traveling
+    ? destinationNode && destinationNode.id !== currentId
+      ? destinationNode.id
+      : null
+    : selectedId && selectedId !== currentId
+      ? selectedId
+      : null
+  const displayTaggedIds =
+    pinnedId && !taggedIds.includes(pinnedId) ? [...taggedIds, pinnedId] : taggedIds
 
   const handleSelect = (id: string) => {
     if (!traveling) setSelectedId(id)
@@ -56,6 +63,12 @@ export default function App() {
     if (route.length === 0) return
     setCurrentId(route[0])
     setRoute(route.slice(1))
+    // Journey over: re-lock the camera for the next departure.
+    if (route.length === 1) setFollowing(true)
+  }
+  const handleFollow = () => {
+    setFollowing(true)
+    setFollowSignal((s) => s + 1)
   }
 
   // Dev-only handle for the headless smoke test (scripts/smoke.mjs).
@@ -80,6 +93,9 @@ export default function App() {
           taggedIds={displayTaggedIds}
           maxTags={maxTags}
           selectionPaused={viewMode !== 'proximity'}
+          following={following}
+          followSignal={followSignal}
+          onUnlock={() => setFollowing(false)}
           onTaggedChange={setTaggedIds}
           onSelect={handleSelect}
           onTravel={handleTravel}
@@ -96,6 +112,8 @@ export default function App() {
         onViewModeChange={setViewMode}
         maxTags={maxTags}
         onMaxTagsChange={setMaxTags}
+        following={following}
+        onFollow={handleFollow}
         onSelect={handleSelect}
         onTravel={handleTravel}
         onClosePanel={() => setSelectedId(null)}
