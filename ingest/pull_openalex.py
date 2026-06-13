@@ -38,12 +38,20 @@ import urllib.request
 API = "https://api.openalex.org/works"
 MAILTO = "holleyism@gmail.com"
 
-# Pinned, verified seed work IDs (see module docstring on why not search).
-SEEDS = [
+# Seeds come from seeds.json (written by resolve_seeds.py — stage 0). Falls back
+# to this list if that file is absent. Never resolved by search at pull time.
+SEEDS_FILE = os.path.join(os.path.dirname(__file__), "seeds.json")
+SEEDS_FALLBACK = [
     "W2128084896",  # Hopfield 1982 — associative memory (neuroscience galaxy)
     "W3127151792",  # Ramsauer 2021 — "Hopfield Networks is All You Need" (the bridge)
-    # TODO: transformer paper — resolve canonical record in the seed-resolution stage.
 ]
+
+
+def load_seeds():
+    if os.path.exists(SEEDS_FILE):
+        with open(SEEDS_FILE) as f:
+            return [s["id"] for s in json.load(f)]
+    return SEEDS_FALLBACK
 
 WORK_SELECT = ",".join(
     [
@@ -226,7 +234,9 @@ def main():
     fresh = db.execute("SELECT COUNT(*) FROM nodes WHERE fetched=1").fetchone()[0] == 0
     pending = db.execute("SELECT COUNT(*) FROM frontier").fetchone()[0]
     if fresh and pending == 0:
-        for s in SEEDS:
+        seeds = load_seeds()
+        print(f"seeds: {', '.join(seeds)}")
+        for s in seeds:
             upsert(db, s, "work", 0)
             db.execute("INSERT OR IGNORE INTO frontier(id, depth) VALUES(?, 0)", (sid(s),))
         db.commit()

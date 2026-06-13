@@ -1,0 +1,26 @@
+[
+  {
+    "id": "W2128084896",
+    "label": "Hopfield 1982 \u2014 associative memory",
+    "title": "Neural networks and physical systems with emergent collective computational abilities.",
+    "year": 1982,
+    "cited_by": 19321,
+    "confidence": "pinned id"
+  },
+  {
+    "id": "W3127151792",
+    "label": "Ramsauer 2021 \u2014 Hopfield Networks is All You Need (bridge)",
+    "title": "Hopfield Networks is All You Need",
+    "year": 2021,
+    "cited_by": 131,
+    "confidence": "pinned id"
+  },
+  {
+    "id": "W2626778328",
+    "label": "Vaswani 2017 \u2014 Attention Is All You Need (transformer)",
+    "title": "Attention Is All You Need",
+    "year": 2025,
+    "cited_by": 6563,
+    "confidence": "author-verified [year 2025!=2017, metadata bug]"
+  }
+]
