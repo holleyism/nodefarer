@@ -136,10 +136,15 @@ def db_init(path):
             id TEXT PRIMARY KEY, type TEXT, name TEXT, props TEXT,
             depth INT, fetched INT DEFAULT 0);
         CREATE TABLE IF NOT EXISTS edges(
-            src TEXT, dst TEXT, kind TEXT, PRIMARY KEY(src, dst, kind));
+            src TEXT, dst TEXT, kind TEXT, props TEXT, PRIMARY KEY(src, dst, kind));
         CREATE TABLE IF NOT EXISTS frontier(id TEXT PRIMARY KEY, depth INT);
         """
     )
+    # Migrate older DBs (edges without a props column).
+    try:
+        db.execute("ALTER TABLE edges ADD COLUMN props TEXT")
+    except sqlite3.OperationalError:
+        pass
     db.commit()
     return db
 
@@ -161,9 +166,11 @@ def upsert(db, oid, ntype, depth, name=None, props=None, fetched=False):
         db.execute(f"UPDATE nodes SET {', '.join(sets)} WHERE id=?", vals)
 
 
-def add_edge(db, src, dst, kind):
+def add_edge(db, src, dst, kind, props=None):
     db.execute(
-        "INSERT OR IGNORE INTO edges(src, dst, kind) VALUES(?, ?, ?)", (sid(src), sid(dst), kind)
+        "INSERT INTO edges(src, dst, kind, props) VALUES(?, ?, ?, ?) "
+        "ON CONFLICT(src, dst, kind) DO UPDATE SET props=COALESCE(excluded.props, props)",
+        (sid(src), sid(dst), kind, json.dumps(props) if props else None),
     )
 
 
@@ -188,13 +195,16 @@ def enrich(db, w, depth):
         au = a.get("author") or {}
         if au.get("id"):
             upsert(db, au["id"], "author", depth, name=au.get("display_name"), props={}, fetched=True)
-            add_edge(db, w["id"], au["id"], "authored_by")
+            add_edge(db, w["id"], au["id"], "authored_by",
+                     {"position": a.get("author_position"), "corresponding": a.get("is_corresponding")})
     concepts = sorted(w.get("concepts") or [], key=lambda c: -(c.get("score") or 0))
     for c in [c for c in concepts if (c.get("score") or 0) >= CONCEPT_MIN_SCORE][:MAX_CONCEPTS]:
         if c.get("id"):
             upsert(db, c["id"], "concept", depth, name=c.get("display_name"),
                    props={"level": c.get("level")}, fetched=True)
-            add_edge(db, w["id"], c["id"], "has_concept")
+            score = c.get("score")
+            add_edge(db, w["id"], c["id"], "has_concept",
+                     {"score": round(score, 4) if score is not None else None})
     src = (w.get("primary_location") or {}).get("source") or {}
     if src.get("id"):
         # key is venue_type, not type — 'type' is the node's own field in export
@@ -214,8 +224,11 @@ def export(db, dbpath):
                 row.update(json.loads(props))
             f.write(json.dumps(row) + "\n")
     with open(base + ".edges.jsonl", "w") as f:
-        for src, dst, kind in db.execute("SELECT src, dst, kind FROM edges"):
-            f.write(json.dumps({"src": src, "dst": dst, "kind": kind}) + "\n")
+        for src, dst, kind, props in db.execute("SELECT src, dst, kind, props FROM edges"):
+            row = {"src": src, "dst": dst, "kind": kind}
+            if props:
+                row.update({k: v for k, v in json.loads(props).items() if v is not None})
+            f.write(json.dumps(row) + "\n")
 
     by_type = dict(db.execute("SELECT type, COUNT(*) FROM nodes GROUP BY type").fetchall())
     by_kind = dict(db.execute("SELECT kind, COUNT(*) FROM edges GROUP BY kind").fetchall())
@@ -224,12 +237,14 @@ def export(db, dbpath):
     print(f"  edges by kind: {by_kind}")
 
 
-def fill_pass(db, rate, top):
-    """Enrich already-discovered but unfetched works (metadata + authors /
-    concepts / venue), without expanding the snowball further. Optionally only
-    the top-N most cited-within-the-graph (degree) — the core worth content.
-    Resumable: each filled work flips fetched=1.
+def fill_pass(db, rate, top, refetch=False):
+    """Enrich discovered works (metadata + authors / concepts / venue) without
+    expanding the snowball further. Optionally only the top-N most cited-within-
+    the-graph (degree) — the core worth content. With refetch, already-fetched
+    works are re-touched too (e.g. to backfill new edge properties onto the
+    core). Resumable: each filled work flips fetched=1.
     """
+    cond = "n.type='work'" if refetch else "n.type='work' AND n.fetched=0"
     if top:
         db.executescript(
             """
@@ -240,13 +255,12 @@ def fill_pass(db, rate, top):
             """
         )
         rows = db.execute(
-            "SELECT n.id FROM nodes n LEFT JOIN deg ON deg.id = n.id "
-            "WHERE n.type='work' AND n.fetched=0 "
-            "ORDER BY COALESCE(deg.d, 0) DESC LIMIT ?",
+            f"SELECT n.id FROM nodes n LEFT JOIN deg ON deg.id = n.id "
+            f"WHERE {cond} ORDER BY COALESCE(deg.d, 0) DESC LIMIT ?",
             (top,),
         ).fetchall()
     else:
-        rows = db.execute("SELECT id FROM nodes WHERE type='work' AND fetched=0").fetchall()
+        rows = db.execute(f"SELECT n.id FROM nodes n WHERE {cond}").fetchall()
 
     ids = [r[0] for r in rows]
     print(f"fill: enriching {len(ids)} works")
@@ -272,7 +286,9 @@ def main():
     ap.add_argument("--fill", action="store_true",
                     help="enrich already-discovered unfetched works (no expansion)")
     ap.add_argument("--fill-top", type=int, default=0,
-                    help="with --fill: only the top-N unfetched works by graph degree (0=all)")
+                    help="with --fill: only the top-N works by graph degree (0=all)")
+    ap.add_argument("--refetch", action="store_true",
+                    help="with --fill: re-touch already-fetched works too (backfill edge props)")
     a = ap.parse_args()
 
     os.makedirs(os.path.dirname(a.db), exist_ok=True)
@@ -283,7 +299,7 @@ def main():
     rate = Rate(a.rps)
 
     if a.fill:
-        fill_pass(db, rate, a.fill_top)
+        fill_pass(db, rate, a.fill_top, a.refetch)
         export(db, a.db)
         db.close()
         return

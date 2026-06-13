@@ -87,7 +87,10 @@ def main():
 
         edges_by_kind = {}
         for e in read_jsonl(a.base + ".edges.jsonl"):
-            edges_by_kind.setdefault(e["kind"], []).append(e)
+            props = {k: v for k, v in e.items() if k not in ("src", "dst", "kind")}
+            edges_by_kind.setdefault(e["kind"], []).append(
+                {"src": e["src"], "dst": e["dst"], "props": props}
+            )
         for kind, rows in edges_by_kind.items():
             m = KIND.get(kind)
             if not m:
@@ -97,7 +100,7 @@ def main():
             q = (
                 f"UNWIND $rows AS r "
                 f"MATCH (a:{sl} {{id: r.src}}) MATCH (b:{dl} {{id: r.dst}}) "
-                f"MERGE (a)-[:{rt}]->(b)"
+                f"MERGE (a)-[e:{rt}]->(b) SET e += r.props"
             )
             for batch in chunks(rows, a.batch):
                 ses.run(q, rows=batch)
