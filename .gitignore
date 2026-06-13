@@ -2,3 +2,6 @@ node_modules
 dist
 *.local
 .DS_Store
+
+# ingest pipeline data (sqlite + jsonl exports)
+ingest/data/
