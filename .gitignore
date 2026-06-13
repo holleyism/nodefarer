@@ -10,3 +10,6 @@ ingest/data/
 .env
 *.env
 
+
+# python venv
+.venv/

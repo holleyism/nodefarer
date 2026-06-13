@@ -182,8 +182,9 @@ def enrich(db, w, depth):
             add_edge(db, w["id"], c["id"], "has_concept")
     src = (w.get("primary_location") or {}).get("source") or {}
     if src.get("id"):
+        # key is venue_type, not type — 'type' is the node's own field in export
         upsert(db, src["id"], "venue", depth, name=src.get("display_name"),
-               props={"type": src.get("type")}, fetched=True)
+               props={"venue_type": src.get("type")}, fetched=True)
         add_edge(db, w["id"], src["id"], "published_in")
 
 
