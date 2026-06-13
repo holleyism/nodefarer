@@ -34,6 +34,25 @@ JSON snapshots later.
 | 4 | **Text embeddings** | TODO | 64 GB + GPU box | Abstracts → vectors on the RTX 5060 Ti (bge-large/e5-large); per-node semantic kNN (for offline wormholes); vectors into Neo4j's vector index. |
 | 5 | **Bundle export** | TODO | 64 GB box | Self-contained JSON the app eats: nodes+props, edges with `kind: structural\|semantic`, degree-by-type, community assignments + quotient + per-community stats, semantic kNN. |
 
+## Connecting to Neo4j (stages 2+)
+
+Connection settings come from the environment — host **and** port live in the
+URI, so pointing at another box/port is just a different `NEO4J_URI`, no code
+change. Copy `.env.example` to `.env` (gitignored) and fill it in, or export the
+vars:
+
+| Variable | Example | |
+|---|---|---|
+| `NEO4J_URI` | `bolt://gpubox.lan:7688` | host + port; `neo4j://` for routing/cluster |
+| `NEO4J_USER` | `neo4j` | |
+| `NEO4J_PASSWORD` | *(in `.env`/shell only)* | never committed; never logged |
+| `NEO4J_DATABASE` | `neo4j` | optional |
+
+`config.py` loads these (real env vars override `.env`) and exposes
+`neo4j_settings()`; the password is read at runtime and never printed. The
+Neo4j Python driver (`neo4j`) is added, pinned, in `requirements.txt` when we
+build the loader.
+
 ## Stage 1 — capped snowball pull
 
 Stdlib only (urllib + sqlite3), resumable, polite-pool (`mailto`). Each node is

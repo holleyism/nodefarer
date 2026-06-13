@@ -5,3 +5,8 @@ dist
 
 # ingest pipeline data (sqlite + jsonl exports)
 ingest/data/
+
+# secrets — never commit; each host keeps its own (.env.example is fine)
+.env
+*.env
+
