@@ -78,5 +78,12 @@ existing pull to start over (needed when going from the smoke DB to a full run,
 since a completed snowball has an empty frontier). Outputs
 `ingest/data/openalex.sqlite` and `*.nodes.jsonl` / `*.edges.jsonl` (gitignored).
 
-Node JSONL: `{id, type, title, year, cited_by, field, depth}`
-Edge JSONL: `{src, dst, kind}` (citing → cited, `kind="cites"`).
+Schema (heterogeneous; props vary by type):
+- Node types: `work | author | concept | venue | institution`
+- Edge kinds: `cites | authored_by | has_concept | published_in | affiliated_work | affiliated_author`
+- Edge props (now-or-re-crawl captures): `has_concept.score`, `authored_by.{position, corresponding, institution_ids}`.
+  Institutions are first-class nodes with work/author affiliation edges; the
+  `institution_ids` array on `authored_by` preserves the precise per-authorship
+  binding (reifiable into Authorship nodes later without a re-crawl).
+- Derived edge props (computed later at load/GDS, no re-crawl): cross-community
+  "bridge" citations, temporal reach (year delta), field-crossing, edge betweenness.

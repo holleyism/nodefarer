@@ -16,8 +16,9 @@ and navigable. Each fetched work is also *enriched* with its authors, concepts
 snowball; attribute nodes attach but never expand the frontier (a shared
 concept would otherwise blow it up).
 
-Node types: work | author | concept | venue
+Node types: work | author | concept | venue | institution
 Edge kinds: cites | authored_by | has_concept | published_in
+            | affiliated_work | affiliated_author
 
 Smoke run (safe, ~a dozen-plus API calls):
     python3 ingest/pull_openalex.py
@@ -193,16 +194,28 @@ def enrich(db, w, depth):
     )
     for a in (w.get("authorships") or [])[:MAX_AUTHORS]:
         au = a.get("author") or {}
-        if au.get("id"):
-            upsert(db, au["id"], "author", depth, name=au.get("display_name"), props={}, fetched=True)
-            inst = (a.get("institutions") or [{}])[0]  # primary affiliation on this paper
-            add_edge(db, w["id"], au["id"], "authored_by", {
-                "position": a.get("author_position"),
-                "corresponding": a.get("is_corresponding"),
-                "institution": inst.get("display_name"),
-                "institution_id": (inst.get("id") or "").rsplit("/", 1)[-1] or None,
-                "country": inst.get("country_code"),
-            })
+        if not au.get("id"):
+            continue
+        upsert(db, au["id"], "author", depth, name=au.get("display_name"), props={}, fetched=True)
+        # Institutions are first-class nodes (like authors/concepts/venues), with
+        # work- and author-level affiliation edges. The precise per-authorship
+        # binding (which institutions for THIS author on THIS work) rides on the
+        # authored_by edge as an id array — a primitive array Neo4j accepts, and
+        # enough to reify into Authorship nodes later without a re-crawl.
+        inst_ids = []
+        for i in a.get("institutions") or []:
+            if not i.get("id"):
+                continue
+            inst_ids.append(sid(i["id"]))
+            upsert(db, i["id"], "institution", depth, name=i.get("display_name"),
+                   props={"country": i.get("country_code"), "inst_type": i.get("type")}, fetched=True)
+            add_edge(db, w["id"], i["id"], "affiliated_work")
+            add_edge(db, au["id"], i["id"], "affiliated_author")
+        add_edge(db, w["id"], au["id"], "authored_by", {
+            "position": a.get("author_position"),
+            "corresponding": a.get("is_corresponding"),
+            "institution_ids": inst_ids or None,
+        })
     concepts = sorted(w.get("concepts") or [], key=lambda c: -(c.get("score") or 0))
     for c in [c for c in concepts if (c.get("score") or 0) >= CONCEPT_MIN_SCORE][:MAX_CONCEPTS]:
         if c.get("id"):

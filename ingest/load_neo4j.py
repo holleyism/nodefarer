@@ -18,13 +18,21 @@ import neo4j.exceptions as nx
 
 import config
 
-TYPE_LABEL = {"work": "Work", "author": "Author", "concept": "Concept", "venue": "Venue"}
+TYPE_LABEL = {
+    "work": "Work",
+    "author": "Author",
+    "concept": "Concept",
+    "venue": "Venue",
+    "institution": "Institution",
+}
 # edge kind -> (src label, dst label, relationship type)
 KIND = {
     "cites": ("Work", "Work", "CITES"),
     "authored_by": ("Work", "Author", "AUTHORED_BY"),
     "has_concept": ("Work", "Concept", "HAS_CONCEPT"),
     "published_in": ("Work", "Venue", "PUBLISHED_IN"),
+    "affiliated_work": ("Work", "Institution", "AFFILIATED_WITH"),
+    "affiliated_author": ("Author", "Institution", "AFFILIATED_WITH"),
 }
 
 
