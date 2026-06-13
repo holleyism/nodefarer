@@ -13,3 +13,5 @@ ingest/data/
 
 # python venv
 .venv/
+__pycache__/
+*.pyc
