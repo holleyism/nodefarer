@@ -94,9 +94,16 @@ def get(url, rate, tries=4):
             with urllib.request.urlopen(url, timeout=30) as r:
                 return json.load(r)
         except urllib.error.HTTPError as e:
-            if e.code in (429, 500, 502, 503) and i < tries - 1:
-                time.sleep(2**i)
-                continue
+            # Transient — back off and retry.
+            if e.code in (429, 500, 502, 503, 504):
+                if i < tries - 1:
+                    time.sleep(2**i)
+                    continue
+                raise
+            # Other 4xx (404 dangling/merged id, 410 gone, ...) — skip this node
+            # rather than crashing the whole crawl; OpenAlex has dead references.
+            if 400 <= e.code < 500:
+                return None
             raise
         except Exception:
             if i < tries - 1:
