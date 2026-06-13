@@ -224,6 +224,42 @@ def export(db, dbpath):
     print(f"  edges by kind: {by_kind}")
 
 
+def fill_pass(db, rate, top):
+    """Enrich already-discovered but unfetched works (metadata + authors /
+    concepts / venue), without expanding the snowball further. Optionally only
+    the top-N most cited-within-the-graph (degree) — the core worth content.
+    Resumable: each filled work flips fetched=1.
+    """
+    if top:
+        db.executescript(
+            """
+            CREATE TEMP TABLE IF NOT EXISTS deg AS
+            SELECT id, COUNT(*) AS d FROM
+                (SELECT src AS id FROM edges UNION ALL SELECT dst AS id FROM edges)
+            GROUP BY id;
+            """
+        )
+        rows = db.execute(
+            "SELECT n.id FROM nodes n LEFT JOIN deg ON deg.id = n.id "
+            "WHERE n.type='work' AND n.fetched=0 "
+            "ORDER BY COALESCE(deg.d, 0) DESC LIMIT ?",
+            (top,),
+        ).fetchall()
+    else:
+        rows = db.execute("SELECT id FROM nodes WHERE type='work' AND fetched=0").fetchall()
+
+    ids = [r[0] for r in rows]
+    print(f"fill: enriching {len(ids)} works")
+    for i, wid in enumerate(ids):
+        w = get(f"{API}/{wid}?select={WORK_SELECT}&mailto={MAILTO}", rate)
+        if w:
+            enrich(db, w, 0)  # existing depth is preserved (upsert doesn't touch it)
+        if i % 200 == 0:
+            db.commit()
+            print(f"  {i}/{len(ids)}")
+    db.commit()
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--db", default="ingest/data/openalex.sqlite")
@@ -233,6 +269,10 @@ def main():
     ap.add_argument("--max-works", type=int, default=30, help="snowball budget (works only)")
     ap.add_argument("--rps", type=float, default=8.0)
     ap.add_argument("--reset", action="store_true", help="discard any existing pull and start fresh")
+    ap.add_argument("--fill", action="store_true",
+                    help="enrich already-discovered unfetched works (no expansion)")
+    ap.add_argument("--fill-top", type=int, default=0,
+                    help="with --fill: only the top-N unfetched works by graph degree (0=all)")
     a = ap.parse_args()
 
     os.makedirs(os.path.dirname(a.db), exist_ok=True)
@@ -241,6 +281,12 @@ def main():
         print(f"reset: removed {a.db}")
     db = db_init(a.db)
     rate = Rate(a.rps)
+
+    if a.fill:
+        fill_pass(db, rate, a.fill_top)
+        export(db, a.db)
+        db.close()
+        return
 
     fresh = db.execute("SELECT COUNT(*) FROM nodes WHERE fetched=1").fetchone()[0] == 0
     pending = db.execute("SELECT COUNT(*) FROM frontier").fetchone()[0]
