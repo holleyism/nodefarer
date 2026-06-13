@@ -30,6 +30,10 @@ export default function App() {
   // mid-flight unlocks it; "follow course" (or journey's end) re-locks.
   const [following, setFollowing] = useState(true)
   const [followSignal, setFollowSignal] = useState(0)
+  // Blast doors: shut the window while the universe is being (re)laid out.
+  // Manual control for now; relayout events (queries, expand/collapse,
+  // cluster switches) will drive this later.
+  const [doorsClosed, setDoorsClosed] = useState(false)
 
   const currentNode = graph.nodeById.get(currentId)!
   const selectedNode = selectedId ? graph.nodeById.get(selectedId)! : null
@@ -48,8 +52,12 @@ export default function App() {
       ? selectedId
       : null
   const baseTaggedIds = viewMode === 'adjacent' ? (graph.neighbors.get(currentId) ?? []) : taggedIds
-  const displayTaggedIds =
-    pinnedId && !baseTaggedIds.includes(pinnedId) ? [...baseTaggedIds, pinnedId] : baseTaggedIds
+  // No reticle locks while the doors are shut — there's nothing on the glass.
+  const displayTaggedIds = doorsClosed
+    ? []
+    : pinnedId && !baseTaggedIds.includes(pinnedId)
+      ? [...baseTaggedIds, pinnedId]
+      : baseTaggedIds
 
   const handleSelect = (id: string) => {
     if (!traveling) setSelectedId(id)
@@ -76,12 +84,28 @@ export default function App() {
   // Dev-only handle for the headless smoke test (scripts/smoke.mjs).
   useEffect(() => {
     if (import.meta.env.DEV) {
-      ;(window as any).__nodefarer = { travelTo: handleTravel, currentId }
+      ;(window as any).__nodefarer = {
+        travelTo: handleTravel,
+        currentId,
+        doors: { close: () => setDoorsClosed(true), open: () => setDoorsClosed(false) },
+      }
     }
   })
 
   return (
-    <Box sx={{ position: 'fixed', inset: 0, bgcolor: '#02030a' }}>
+    <Box
+      sx={{
+        position: 'fixed',
+        inset: 0,
+        bgcolor: '#02030a',
+        // The canvas owns all touch gestures — otherwise Safari hijacks a
+        // finger-drag into a page scroll/pinch after a few pixels and our
+        // look-around handler stops getting pointer moves. touch-action does
+        // not inherit, so it must land on the <canvas> element itself.
+        touchAction: 'none',
+        '& canvas': { touchAction: 'none' },
+      }}
+    >
       <Canvas
         flat
         camera={{ fov: 60, near: 0.1, far: 4000 }}
@@ -94,7 +118,7 @@ export default function App() {
           selectedId={selectedId}
           taggedIds={displayTaggedIds}
           maxTags={maxTags}
-          selectionPaused={viewMode !== 'proximity'}
+          selectionPaused={viewMode !== 'proximity' || doorsClosed}
           following={following}
           followSignal={followSignal}
           onUnlock={() => setFollowing(false)}
@@ -116,6 +140,8 @@ export default function App() {
         onMaxTagsChange={setMaxTags}
         following={following}
         onFollow={handleFollow}
+        doorsClosed={doorsClosed}
+        onToggleDoors={() => setDoorsClosed(!doorsClosed)}
         onSelect={handleSelect}
         onTravel={handleTravel}
         onClosePanel={() => setSelectedId(null)}

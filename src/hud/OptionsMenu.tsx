@@ -18,6 +18,8 @@ interface Props {
   onViewModeChange: (m: ViewMode) => void
   maxTags: number
   onMaxTagsChange: (n: number) => void
+  doorsClosed: boolean
+  onToggleDoors: () => void
 }
 
 // Ship console: lives in the dashboard bar; the panel deploys upward from
@@ -26,7 +28,14 @@ interface Props {
 // highlights; each mode owns the controls rendered beneath it.
 type PanelState = 'closed' | 'open' | 'closing'
 
-export function OptionsMenu({ viewMode, onViewModeChange, maxTags, onMaxTagsChange }: Props) {
+export function OptionsMenu({
+  viewMode,
+  onViewModeChange,
+  maxTags,
+  onMaxTagsChange,
+  doorsClosed,
+  onToggleDoors,
+}: Props) {
   // 'closing' keeps the panel mounted while the retract animation plays.
   const [panel, setPanel] = useState<PanelState>('closed')
   const open = panel === 'open'
@@ -148,6 +157,29 @@ export function OptionsMenu({ viewMode, onViewModeChange, maxTags, onMaxTagsChan
               Reticles lock only nodes linked to the current node.
             </Typography>
           )}
+
+          <Typography sx={{ font: MONO, letterSpacing: 1.5, color: 'text.secondary', mt: 1.5 }}>
+            BLAST DOORS
+          </Typography>
+          <Box
+            component="button"
+            onClick={onToggleDoors}
+            sx={{
+              width: '100%',
+              mt: 0.5,
+              font: MONO_SMALL,
+              letterSpacing: 1.5,
+              textTransform: 'uppercase',
+              padding: '4px 0',
+              color: doorsClosed ? '#02030a' : '#aadfff',
+              background: doorsClosed ? '#7fd4ff' : 'transparent',
+              border: '1px solid rgba(127, 212, 255, 0.45)',
+              borderRadius: '6px',
+              cursor: 'pointer',
+            }}
+          >
+            {doorsClosed ? '▲ open doors' : '▼ close doors'}
+          </Box>
         </Box>
       )}
 

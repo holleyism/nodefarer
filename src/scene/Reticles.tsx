@@ -4,13 +4,77 @@ import { Billboard, Html } from '@react-three/drei'
 import * as THREE from 'three'
 import type { Graph, GraphNode } from '../types'
 import { NODE_RADIUS } from './Nodes'
-import { screenEdgeFactor } from './screenFade'
+import { screenEdgeFactor, screenPoint } from './screenFade'
 import { reticleVisibility } from './shipBus'
 
 // Targeting reticles are instrumentation drawn by the ship's window, so they
 // use the HUD's color regardless of what they're pointing at.
 const HUD = '#7fd4ff'
 const HUD_TEXT = '#aadfff'
+
+// Declutter: per-frame target alpha for each tag's name bubble. When two
+// bubbles would collide, the closer node keeps its label (selected always
+// wins) and the other fades; rings are never decluttered.
+const labelTarget = new Map<string, number>()
+
+interface Rect {
+  x1: number
+  y1: number
+  x2: number
+  y2: number
+}
+
+// Estimated on-screen bubble rect: offset (34, -46) from the node's
+// projection; 11px mono + 1.2 letter-spacing ≈ 7.8px per character.
+function labelRect(name: string, x: number, y: number): Rect {
+  const w = 24 + name.length * 7.8
+  return { x1: x + 34, y1: y - 46, x2: x + 34 + w, y2: y - 22 }
+}
+
+function intersects(a: Rect, b: Rect) {
+  return a.x1 < b.x2 && b.x1 < a.x2 && a.y1 < b.y2 && b.y1 < a.y2
+}
+
+interface DeclutterProps {
+  graph: Graph
+  taggedIds: string[]
+  selectedId: string | null
+}
+
+function Declutter({ graph, taggedIds, selectedId }: DeclutterProps) {
+  const pos = useMemo(() => new THREE.Vector3(), [])
+
+  useFrame(({ camera, size }) => {
+    const items: Array<{ id: string; name: string; dist: number; x: number; y: number }> = []
+    for (const id of taggedIds) {
+      const node = graph.nodeById.get(id)
+      if (!node) continue
+      pos.set(node.x!, node.y!, node.z!)
+      const sp = screenPoint(pos, camera, size)
+      if (sp.factor <= 0.01) {
+        // Off the glass — the edge fade owns it; don't let it claim space.
+        labelTarget.set(id, 1)
+        continue
+      }
+      items.push({ id, name: node.name, dist: camera.position.distanceTo(pos), x: sp.x, y: sp.y })
+    }
+    items.sort((a, b) =>
+      a.id === selectedId ? -1 : b.id === selectedId ? 1 : a.dist - b.dist,
+    )
+    const accepted: Rect[] = []
+    for (const it of items) {
+      const r = labelRect(it.name, it.x, it.y)
+      if (accepted.some((o) => intersects(o, r))) {
+        labelTarget.set(it.id, 0)
+      } else {
+        accepted.push(r)
+        labelTarget.set(it.id, 1)
+      }
+    }
+  })
+
+  return null
+}
 
 interface ReticleProps {
   node: GraphNode
@@ -32,9 +96,12 @@ function Reticle({ node, emphasized, onSelect }: ReticleProps) {
   const hudColor = useMemo(() => new THREE.Color(HUD), [])
   const flashColor = useMemo(() => new THREE.Color('#ffffff'), [])
 
+  const labelAlpha = useRef(1)
+
   useEffect(() => {
     return () => {
       reticleVisibility.delete(node.id)
+      labelTarget.delete(node.id)
     }
   }, [node.id])
   const pos = useMemo(() => new THREE.Vector3(node.x!, node.y!, node.z!), [node])
@@ -64,10 +131,14 @@ function Reticle({ node, emphasized, onSelect }: ReticleProps) {
       outerRingMat.current.color.copy(hudColor).lerp(flashColor, f)
     }
     if (htmlRef.current) {
-      htmlRef.current.style.opacity = String(factor)
+      // Ease toward the declutter verdict so labels swap without popping.
+      const target = labelTarget.get(node.id) ?? 1
+      labelAlpha.current += (target - labelAlpha.current) * Math.min(1, delta * 12)
+      const labelOpacity = factor * labelAlpha.current
+      htmlRef.current.style.opacity = String(labelOpacity)
       htmlRef.current.style.filter = f > 0.01 ? `brightness(${1 + 2.5 * f})` : ''
       // visibility (not display) so layout is stable; also kills clicks while hidden
-      htmlRef.current.style.visibility = factor > 0.01 ? 'visible' : 'hidden'
+      htmlRef.current.style.visibility = labelOpacity > 0.02 ? 'visible' : 'hidden'
     }
     if (tagRef.current) {
       tagRef.current.style.transform = f > 0.01 ? `scale(${1 + 0.35 * f})` : ''
@@ -164,6 +235,7 @@ interface ReticlesProps {
 export function Reticles({ graph, taggedIds, selectedId, onSelect }: ReticlesProps) {
   return (
     <>
+      <Declutter graph={graph} taggedIds={taggedIds} selectedId={selectedId} />
       {taggedIds.map((id) => (
         <Reticle
           key={id}

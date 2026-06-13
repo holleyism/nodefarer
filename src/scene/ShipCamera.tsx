@@ -129,24 +129,41 @@ export function ShipCamera({ currentNode, targetNode, following, followSignal, o
 
   useEffect(() => {
     const el = gl.domElement
-    let dragging = false
-    let lastX = 0
-    let lastY = 0
+    // Active pressed pointers by id → last screen position. One pointer =
+    // look; two pointers = pinch-zoom the FOV (the touch equivalent of the
+    // mouse wheel).
+    const pointers = new Map<number, { x: number; y: number }>()
+    let pinch: { startDist: number; startFov: number } | null = null
+
+    const setFov = (fov: number) => {
+      camera.fov = THREE.MathUtils.clamp(fov, 25, 80)
+      camera.updateProjectionMatrix()
+    }
+    const pinchDist = () => {
+      const [a, b] = [...pointers.values()]
+      return Math.hypot(a.x - b.x, a.y - b.y)
+    }
 
     const onDown = (e: PointerEvent) => {
-      if (e.button !== 0) return
-      dragging = true
-      lastX = e.clientX
-      lastY = e.clientY
+      if (e.pointerType === 'mouse' && e.button !== 0) return
+      pointers.set(e.pointerId, { x: e.clientX, y: e.clientY })
+      if (pointers.size === 2) pinch = { startDist: pinchDist(), startFov: camera.fov }
     }
     const onMove = (e: PointerEvent) => {
-      // Free look while parked or flying; only the brief auto-aim turn at
-      // each waypoint owns the view.
-      if (!dragging || travel.current?.phase === 'turn') return
-      const dx = e.clientX - lastX
-      const dy = e.clientY - lastY
-      lastX = e.clientX
-      lastY = e.clientY
+      const prev = pointers.get(e.pointerId)
+      if (!prev) return
+      const dx = e.clientX - prev.x
+      const dy = e.clientY - prev.y
+      prev.x = e.clientX
+      prev.y = e.clientY
+
+      if (pinch && pointers.size >= 2) {
+        // Spread fingers → larger distance → narrower FOV → zoom in.
+        setFov(pinch.startFov * (pinch.startDist / (pinchDist() || 1)))
+        return
+      }
+      // Single-finger / mouse look; the brief auto-aim turn owns the view.
+      if (travel.current?.phase === 'turn') return
       look.current.yaw -= dx * 0.0032
       look.current.pitch = THREE.MathUtils.clamp(look.current.pitch - dy * 0.0032, -1.45, 1.45)
       if (travel.current) {
@@ -155,23 +172,25 @@ export function ShipCamera({ currentNode, targetNode, following, followSignal, o
         if (followingRef.current) onUnlockRef.current()
       }
     }
-    const onUp = () => {
-      dragging = false
+    const onUp = (e: PointerEvent) => {
+      pointers.delete(e.pointerId)
+      if (pointers.size < 2) pinch = null
     }
     const onWheel = (e: WheelEvent) => {
       e.preventDefault()
-      camera.fov = THREE.MathUtils.clamp(camera.fov + e.deltaY * 0.03, 25, 80)
-      camera.updateProjectionMatrix()
+      setFov(camera.fov + e.deltaY * 0.03)
     }
 
     el.addEventListener('pointerdown', onDown)
     window.addEventListener('pointermove', onMove)
     window.addEventListener('pointerup', onUp)
+    window.addEventListener('pointercancel', onUp)
     el.addEventListener('wheel', onWheel, { passive: false })
     return () => {
       el.removeEventListener('pointerdown', onDown)
       window.removeEventListener('pointermove', onMove)
       window.removeEventListener('pointerup', onUp)
+      window.removeEventListener('pointercancel', onUp)
       el.removeEventListener('wheel', onWheel)
     }
   }, [gl, camera])

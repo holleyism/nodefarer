@@ -1,5 +1,6 @@
 import { Box, Chip, LinearProgress, Paper, Stack, Typography } from '@mui/material'
 import type { Graph, GraphNode, ViewMode } from '../types'
+import { BlastDoors } from './BlastDoors'
 import { BottomBar } from './BottomBar'
 import { HUD_TEXT, MONO_SMALL, PANEL_SX, SECTION_LABEL_SX } from './hudStyles'
 import { NodePanel } from './NodePanel'
@@ -22,6 +23,8 @@ interface Props {
   onMaxTagsChange: (n: number) => void
   following: boolean
   onFollow: () => void
+  doorsClosed: boolean
+  onToggleDoors: () => void
   onSelect: (id: string) => void
   onTravel: (id: string) => void
   onClosePanel: () => void
@@ -39,6 +42,8 @@ export function Hud({
   onMaxTagsChange,
   following,
   onFollow,
+  doorsClosed,
+  onToggleDoors,
   onSelect,
   onTravel,
   onClosePanel,
@@ -53,6 +58,7 @@ export function Hud({
 
   return (
     <>
+      <BlastDoors closed={doorsClosed} label="standby — layout hold" />
       <ViewportFrame />
 
       {/* Current node — top left */}
@@ -140,6 +146,8 @@ export function Hud({
         onViewModeChange={onViewModeChange}
         maxTags={maxTags}
         onMaxTagsChange={onMaxTagsChange}
+        doorsClosed={doorsClosed}
+        onToggleDoors={onToggleDoors}
       />
 
       {selectedNode && (

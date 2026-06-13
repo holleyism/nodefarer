@@ -13,10 +13,11 @@ const CORNERS = [
 
 // The ship's window: vignette, thin frame, and corner brackets drawn over the
 // scene, ending where the dashboard (BottomBar) begins. Purely decorative —
-// lets no pointer events through it.
+// lets no pointer events through it. Sits above the blast doors (z 30):
+// the frame is part of the viewport, not the void behind it.
 export function ViewportFrame() {
   return (
-    <Box sx={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}>
+    <Box sx={{ position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 35 }}>
       <Box
         sx={{
           position: 'absolute',

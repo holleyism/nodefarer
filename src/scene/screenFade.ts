@@ -11,19 +11,34 @@ const projected = new THREE.Vector3()
 const toPoint = new THREE.Vector3()
 const forward = new THREE.Vector3()
 
-// 0 when pos is behind the camera or within FADE_GONE px of the viewport
-// border, 1 beyond FADE_FULL px, smoothstepped between.
-export function screenEdgeFactor(
+export interface ScreenPoint {
+  factor: number
+  x: number
+  y: number
+}
+
+// factor is 0 when pos is behind the camera or within FADE_GONE px of the
+// viewport border, 1 beyond FADE_FULL px, smoothstepped between. x/y are
+// the projected screen coordinates (CSS px; meaningless when behind).
+export function screenPoint(
   pos: THREE.Vector3,
   camera: THREE.Camera,
   size: { width: number; height: number },
-): number {
+): ScreenPoint {
   camera.getWorldDirection(forward)
-  if (forward.dot(toPoint.copy(pos).sub(camera.position)) < 0) return 0
+  if (forward.dot(toPoint.copy(pos).sub(camera.position)) < 0) return { factor: 0, x: 0, y: 0 }
   projected.copy(pos).project(camera)
   const px = (projected.x * 0.5 + 0.5) * size.width
   const py = (-projected.y * 0.5 + 0.5) * size.height
   const edge = Math.min(px, size.width - px, py, size.height - py)
   const t = THREE.MathUtils.clamp((edge - FADE_GONE) / (FADE_FULL - FADE_GONE), 0, 1)
-  return t * t * (3 - 2 * t)
+  return { factor: t * t * (3 - 2 * t), x: px, y: py }
+}
+
+export function screenEdgeFactor(
+  pos: THREE.Vector3,
+  camera: THREE.Camera,
+  size: { width: number; height: number },
+): number {
+  return screenPoint(pos, camera, size).factor
 }

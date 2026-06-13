@@ -13,9 +13,18 @@ interface Props {
   onViewModeChange: (m: ViewMode) => void
   maxTags: number
   onMaxTagsChange: (n: number) => void
+  doorsClosed: boolean
+  onToggleDoors: () => void
 }
 
-export function BottomBar({ viewMode, onViewModeChange, maxTags, onMaxTagsChange }: Props) {
+export function BottomBar({
+  viewMode,
+  onViewModeChange,
+  maxTags,
+  onMaxTagsChange,
+  doorsClosed,
+  onToggleDoors,
+}: Props) {
   return (
     <Box
       sx={{
@@ -39,6 +48,8 @@ export function BottomBar({ viewMode, onViewModeChange, maxTags, onMaxTagsChange
         onViewModeChange={onViewModeChange}
         maxTags={maxTags}
         onMaxTagsChange={onMaxTagsChange}
+        doorsClosed={doorsClosed}
+        onToggleDoors={onToggleDoors}
       />
       <Typography variant="caption" sx={{ color: 'text.secondary' }}>
         Drag — look around · Scroll — zoom · Click node — inspect · Double-click — travel
