@@ -93,7 +93,19 @@ export default function App() {
   })
 
   return (
-    <Box sx={{ position: 'fixed', inset: 0, bgcolor: '#02030a' }}>
+    <Box
+      sx={{
+        position: 'fixed',
+        inset: 0,
+        bgcolor: '#02030a',
+        // The canvas owns all touch gestures — otherwise Safari hijacks a
+        // finger-drag into a page scroll/pinch after a few pixels and our
+        // look-around handler stops getting pointer moves. touch-action does
+        // not inherit, so it must land on the <canvas> element itself.
+        touchAction: 'none',
+        '& canvas': { touchAction: 'none' },
+      }}
+    >
       <Canvas
         flat
         camera={{ fov: 60, near: 0.1, far: 4000 }}
