@@ -195,8 +195,14 @@ def enrich(db, w, depth):
         au = a.get("author") or {}
         if au.get("id"):
             upsert(db, au["id"], "author", depth, name=au.get("display_name"), props={}, fetched=True)
-            add_edge(db, w["id"], au["id"], "authored_by",
-                     {"position": a.get("author_position"), "corresponding": a.get("is_corresponding")})
+            inst = (a.get("institutions") or [{}])[0]  # primary affiliation on this paper
+            add_edge(db, w["id"], au["id"], "authored_by", {
+                "position": a.get("author_position"),
+                "corresponding": a.get("is_corresponding"),
+                "institution": inst.get("display_name"),
+                "institution_id": (inst.get("id") or "").rsplit("/", 1)[-1] or None,
+                "country": inst.get("country_code"),
+            })
     concepts = sorted(w.get("concepts") or [], key=lambda c: -(c.get("score") or 0))
     for c in [c for c in concepts if (c.get("score") or 0) >= CONCEPT_MIN_SCORE][:MAX_CONCEPTS]:
         if c.get("id"):
