@@ -225,9 +225,13 @@ def main():
     ap.add_argument("--max-depth", type=int, default=1)
     ap.add_argument("--max-works", type=int, default=30, help="snowball budget (works only)")
     ap.add_argument("--rps", type=float, default=8.0)
+    ap.add_argument("--reset", action="store_true", help="discard any existing pull and start fresh")
     a = ap.parse_args()
 
     os.makedirs(os.path.dirname(a.db), exist_ok=True)
+    if a.reset and os.path.exists(a.db):
+        os.remove(a.db)
+        print(f"reset: removed {a.db}")
     db = db_init(a.db)
     rate = Rate(a.rps)
 
@@ -240,6 +244,15 @@ def main():
             upsert(db, s, "work", 0)
             db.execute("INSERT OR IGNORE INTO frontier(id, depth) VALUES(?, 0)", (sid(s),))
         db.commit()
+    elif pending == 0:
+        n = db.execute("SELECT COUNT(*) FROM nodes WHERE type='work'").fetchone()[0]
+        print(
+            f"existing pull at {a.db} is already complete ({n} works), frontier empty.\n"
+            f"Use --reset to start a new run, or --db <path> for a separate one."
+        )
+        export(db, a.db)
+        db.close()
+        return
 
     while True:
         n_works = db.execute("SELECT COUNT(*) FROM nodes WHERE type='work'").fetchone()[0]

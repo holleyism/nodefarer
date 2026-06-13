@@ -60,20 +60,22 @@ expanded by its references (outgoing, capped) and its top-N most-cited citing
 works (incoming) to a bounded depth and node budget — the same capped expansion
 the app does at runtime, so the slice stays connected and navigable.
 
-Seeds are **pinned verified IDs** in `SEEDS` (never search). Confirmed so far:
-`W2128084896` (Hopfield 1982), `W3127151792` (Ramsauer 2021 bridge). Transformer
-seed pending stage 0.
+Seeds come from `seeds.json` (stage 0). Pinned: Hopfield 1982, the Ramsauer 2021
+bridge, and the transformer (`W2626778328`, recovered despite OpenAlex's broken
+record for it).
 
 ```bash
 # smoke (safe, ~two dozen calls)
 python3 ingest/pull_openalex.py
 
-# full run (hours; on the 64 GB box)
-python3 ingest/pull_openalex.py --in-cap 150 --out-cap 200 \
-    --max-depth 3 --max-nodes 200000 --rps 9
+# full run (hours; on the 64GB + GPU box) — --reset starts a fresh DB
+python3 ingest/pull_openalex.py --reset --in-cap 150 --out-cap 200 \
+    --max-depth 3 --max-works 200000 --rps 9
 ```
 
-Resumable: re-running continues from the sqlite frontier. Outputs
+Resumable: re-running continues from the sqlite frontier; `--reset` discards an
+existing pull to start over (needed when going from the smoke DB to a full run,
+since a completed snowball has an empty frontier). Outputs
 `ingest/data/openalex.sqlite` and `*.nodes.jsonl` / `*.edges.jsonl` (gitignored).
 
 Node JSONL: `{id, type, title, year, cited_by, field, depth}`
