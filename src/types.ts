@@ -18,14 +18,27 @@ export interface GraphNode {
   z?: number
 }
 
+// structural = real graph topology (citations, lanes); semantic = an inferred
+// link (embedding kNN / "wormhole") with no structural path. The {kind,label,
+// props} shape is intentionally generic so it transfers to the real OpenAlex
+// bundle without touching the UI.
+export type EdgeKind = 'structural' | 'semantic'
+
 export interface GraphEdge {
+  id: string
   source: string
   target: string
+  kind: EdgeKind
+  label: string
+  props: Record<string, string | number>
 }
 
 export interface Graph {
   nodes: GraphNode[]
   edges: GraphEdge[]
   nodeById: Map<string, GraphNode>
+  edgeById: Map<string, GraphEdge>
   neighbors: Map<string, string[]>
+  // Edges touching a node, both directions — drives the node panel's link list.
+  incident: Map<string, GraphEdge[]>
 }

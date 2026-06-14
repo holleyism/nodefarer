@@ -22,6 +22,26 @@ await page.screenshot({ path: `${outDir}/1-initial.png` })
 const currentName = await page.locator('h6').first().textContent()
 console.log('CURRENT NODE:', currentName)
 
+// Edge UX: open the current node's panel and exercise the link list.
+// The start node (Vela Prime / 0-0) carries a demo wormhole, so the Links
+// section must show a semantic (✷) row that pins to a viewport bracket.
+await page.locator('text=Current node').click()
+await page.waitForSelector('text=/^Links/', { timeout: 5000 })
+const links = page.locator('[data-testid="edge-link"]')
+const linkCount = await links.count()
+console.log('EDGE LINKS:', linkCount)
+const wormholeRows = await page.locator('[data-testid="edge-link"]:has-text("✷")').count()
+console.log('WORMHOLE LINKS:', wormholeRows)
+// Pin the first two links (multiple brackets) and confirm a sub-panel opens.
+await links.nth(0).click()
+await page.waitForSelector('button:has-text("Travel to"), button:has-text("Jump to")', { timeout: 5000 })
+if (linkCount > 1) await links.nth(1).click()
+await page.waitForTimeout(400)
+await page.screenshot({ path: `${outDir}/1b-edge-links.png` })
+// Clear selection so the rest of the run starts clean.
+await page.mouse.click(640, 400)
+await page.waitForTimeout(300)
+
 // Click a neighbor tag. Tags fade out near the viewport border, so spin
 // the view until one is inside the safe zone.
 const chips = page.locator('[data-testid="node-tag"]:visible')

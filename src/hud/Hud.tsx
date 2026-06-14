@@ -25,6 +25,9 @@ interface Props {
   onFollow: () => void
   doorsClosed: boolean
   onToggleDoors: () => void
+  pinnedEdgeIds: string[]
+  onTogglePin: (id: string) => void
+  onHoverEdge: (id: string | null) => void
   onSelect: (id: string) => void
   onTravel: (id: string) => void
   onClosePanel: () => void
@@ -44,6 +47,9 @@ export function Hud({
   onFollow,
   doorsClosed,
   onToggleDoors,
+  pinnedEdgeIds,
+  onTogglePin,
+  onHoverEdge,
   onSelect,
   onTravel,
   onClosePanel,
@@ -153,10 +159,14 @@ export function Hud({
       {selectedNode && (
         <NodePanel
           node={selectedNode}
+          graph={graph}
+          currentId={currentNode.id}
           isCurrent={selectedNode.id === currentNode.id}
-          isNeighbor={(graph.neighbors.get(currentNode.id) ?? []).includes(selectedNode.id)}
           distance={dist(currentNode, selectedNode)}
           traveling={traveling}
+          pinnedEdgeIds={pinnedEdgeIds}
+          onTogglePin={onTogglePin}
+          onHoverEdge={onHoverEdge}
           onTravel={onTravel}
           onClose={onClosePanel}
         />

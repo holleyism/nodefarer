@@ -104,6 +104,11 @@ function Reticle({ node, emphasized, onSelect }: ReticleProps) {
       labelTarget.delete(node.id)
     }
   }, [node.id])
+  // Re-fire the acquisition flash when this reticle becomes the selected one,
+  // so selecting a node gets the same lock-on pop as one entering the glass.
+  useEffect(() => {
+    if (emphasized) flash.current = 1
+  }, [emphasized])
   const pos = useMemo(() => new THREE.Vector3(node.x!, node.y!, node.z!), [node])
 
   useFrame(({ camera, size }, delta) => {

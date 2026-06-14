@@ -36,7 +36,8 @@ const NODES_PER_CLUSTER = 20
 export function generateGraph(seed = 7): Graph {
   const rand = mulberry32(seed)
   const nodes: GraphNode[] = []
-  const edges: GraphEdge[] = []
+  // Raw source/target pairs; promoted to the full GraphEdge shape after dedup.
+  const edges: Array<{ source: string; target: string }> = []
 
   for (let c = 0; c < CLUSTERS; c++) {
     const stem = STEMS[c]
@@ -96,22 +97,61 @@ export function generateGraph(seed = 7): Graph {
     if (n.type !== 'star') n.type = 'gate'
   }
 
-  // Dedupe edges (unordered pairs) and build the adjacency map.
+  // Dedupe edges (unordered pairs), then promote each to the generic edge shape.
+  // A link crossing cluster boundaries is a "trunk route"; within a cluster a
+  // "jump lane". Layout-independent props only (distance is computed live).
   const seen = new Set<string>()
-  const deduped: GraphEdge[] = []
+  const edgesOut: GraphEdge[] = []
   for (const e of edges) {
-    const key = e.source < e.target ? `${e.source}|${e.target}` : `${e.target}|${e.source}`
-    if (e.source === e.target || seen.has(key)) continue
+    if (e.source === e.target) continue
+    const [lo, hi] = e.source < e.target ? [e.source, e.target] : [e.target, e.source]
+    const key = `${lo}~${hi}`
+    if (seen.has(key)) continue
     seen.add(key)
-    deduped.push(e)
+    const trunk = lo.split('-')[0] !== hi.split('-')[0]
+    edgesOut.push({
+      id: key,
+      source: e.source,
+      target: e.target,
+      kind: 'structural',
+      label: trunk ? 'trunk route' : 'jump lane',
+      props: { Class: trunk ? 'trunk' : 'local' },
+    })
   }
 
+  // Semantic wormholes: inferred (embedding-kNN) links between distant cluster
+  // hubs with no structural path. Stand-in for the real bundle's semantic edges
+  // — the demo "why a graph this far apart is actually related" moment.
+  const WORMHOLES: Array<[string, string, number, string]> = [
+    ['0-0', '7-0', 0.91, 'resonant memory geometry'],
+    ['3-0', '9-0', 0.88, 'shared attractor topology'],
+    ['1-0', '6-0', 0.86, 'convergent field harmonics'],
+  ]
+  for (const [s, t, similarity, basis] of WORMHOLES) {
+    if (!nodeById.has(s) || !nodeById.has(t)) continue
+    edgesOut.push({
+      id: `wh~${s}~${t}`,
+      source: s,
+      target: t,
+      kind: 'semantic',
+      label: 'wormhole',
+      props: { Similarity: similarity, Basis: basis },
+    })
+  }
+
+  const edgeById = new Map(edgesOut.map((e) => [e.id, e]))
   const neighbors = new Map<string, string[]>()
-  for (const n of nodes) neighbors.set(n.id, [])
-  for (const e of deduped) {
+  const incident = new Map<string, GraphEdge[]>()
+  for (const n of nodes) {
+    neighbors.set(n.id, [])
+    incident.set(n.id, [])
+  }
+  for (const e of edgesOut) {
     neighbors.get(e.source)!.push(e.target)
     neighbors.get(e.target)!.push(e.source)
+    incident.get(e.source)!.push(e)
+    incident.get(e.target)!.push(e)
   }
 
-  return { nodes, edges: deduped, nodeById, neighbors }
+  return { nodes, edges: edgesOut, nodeById, edgeById, neighbors, incident }
 }

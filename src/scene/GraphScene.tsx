@@ -2,6 +2,7 @@ import { Stars } from '@react-three/drei'
 import type { Graph, GraphNode } from '../types'
 import { Nodes } from './Nodes'
 import { Edges } from './Edges'
+import { EdgeHighlights } from './EdgeHighlights'
 import { Reticles } from './Reticles'
 import { ShipCamera } from './ShipCamera'
 import { TagSelector } from './TagSelector'
@@ -12,6 +13,8 @@ interface Props {
   targetNode: GraphNode | null
   selectedId: string | null
   taggedIds: string[]
+  pinnedEdgeIds: string[]
+  hoveredEdgeId: string | null
   maxTags: number
   selectionPaused: boolean
   following: boolean
@@ -29,6 +32,8 @@ export function GraphScene({
   targetNode,
   selectedId,
   taggedIds,
+  pinnedEdgeIds,
+  hoveredEdgeId,
   maxTags,
   selectionPaused,
   following,
@@ -48,7 +53,14 @@ export function GraphScene({
       <directionalLight position={[200, 300, 100]} intensity={0.8} />
       <Stars radius={1200} depth={400} count={5000} factor={6} saturation={0.4} fade speed={0.4} />
       <Edges graph={graph} currentId={currentNode.id} />
-      <Nodes graph={graph} selectedId={selectedId} onSelect={onSelect} onTravel={onTravel} />
+      <EdgeHighlights graph={graph} pinnedEdgeIds={pinnedEdgeIds} hoveredEdgeId={hoveredEdgeId} />
+      <Nodes
+        graph={graph}
+        selectedId={selectedId}
+        currentId={currentNode.id}
+        onSelect={onSelect}
+        onTravel={onTravel}
+      />
       <Reticles graph={graph} taggedIds={taggedIds} selectedId={selectedId} onSelect={onSelect} />
       <TagSelector
         graph={graph}

@@ -17,6 +17,11 @@ export default function App() {
 
   const [currentId, setCurrentId] = useState(() => graph.nodes[0].id)
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  // Edges the user pinned from the selected node's link list (bracketed in the
+  // viewport) and the one currently hovered (lighter preview bracket). Both are
+  // scoped to the open node panel — cleared whenever selection changes.
+  const [pinnedEdgeIds, setPinnedEdgeIds] = useState<string[]>([])
+  const [hoveredEdgeId, setHoveredEdgeId] = useState<string | null>(null)
   // Remaining hops of the active journey (graph-shortest-path, current node
   // excluded). Empty array = parked.
   const [route, setRoute] = useState<string[]>([])
@@ -53,18 +58,32 @@ export default function App() {
       : null
   const baseTaggedIds = viewMode === 'adjacent' ? (graph.neighbors.get(currentId) ?? []) : taggedIds
   // No reticle locks while the doors are shut — there's nothing on the glass.
-  const displayTaggedIds = doorsClosed
-    ? []
-    : pinnedId && !baseTaggedIds.includes(pinnedId)
-      ? [...baseTaggedIds, pinnedId]
-      : baseTaggedIds
+  // The current node never gets a reticle: the ship is parked on it, so a
+  // lock-on bracket there is meaningless (and it sits right under the camera).
+  const displayTaggedIds = (
+    doorsClosed
+      ? []
+      : pinnedId && !baseTaggedIds.includes(pinnedId)
+        ? [...baseTaggedIds, pinnedId]
+        : baseTaggedIds
+  ).filter((id) => id !== currentId)
 
-  const handleSelect = (id: string) => {
-    if (!traveling) setSelectedId(id)
+  // Selecting a different node retires the previous node's pinned/hovered edges.
+  const clearEdges = () => {
+    setPinnedEdgeIds([])
+    setHoveredEdgeId(null)
   }
+  const handleSelect = (id: string) => {
+    if (traveling) return
+    setSelectedId(id)
+    clearEdges()
+  }
+  const handleTogglePin = (id: string) =>
+    setPinnedEdgeIds((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id]))
   const handleTravel = (id: string) => {
     if (traveling || id === currentId) return
     setSelectedId(null)
+    clearEdges()
     const path = shortestPath(graph, currentId, id)
     // Unreachable nodes get a direct flight rather than no flight.
     setRoute(path ? path.slice(1) : [id])
@@ -109,7 +128,10 @@ export default function App() {
       <Canvas
         flat
         camera={{ fov: 60, near: 0.1, far: 4000 }}
-        onPointerMissed={() => setSelectedId(null)}
+        onPointerMissed={() => {
+          setSelectedId(null)
+          clearEdges()
+        }}
       >
         <GraphScene
           graph={graph}
@@ -117,6 +139,8 @@ export default function App() {
           targetNode={nextHopNode}
           selectedId={selectedId}
           taggedIds={displayTaggedIds}
+          pinnedEdgeIds={doorsClosed ? [] : pinnedEdgeIds}
+          hoveredEdgeId={doorsClosed ? null : hoveredEdgeId}
           maxTags={maxTags}
           selectionPaused={viewMode !== 'proximity' || doorsClosed}
           following={following}
@@ -142,6 +166,9 @@ export default function App() {
         onFollow={handleFollow}
         doorsClosed={doorsClosed}
         onToggleDoors={() => setDoorsClosed(!doorsClosed)}
+        pinnedEdgeIds={pinnedEdgeIds}
+        onTogglePin={handleTogglePin}
+        onHoverEdge={setHoveredEdgeId}
         onSelect={handleSelect}
         onTravel={handleTravel}
         onClosePanel={() => setSelectedId(null)}
