@@ -1,0 +1,14 @@
+# Stage 4 (embed.py) deps — kept separate from the stdlib-only puller and the
+# slim Neo4j-driver requirements. Install on the GPU box only.
+#
+# IMPORTANT — torch is NOT pinned here on purpose. The RTX 5060 Ti is Blackwell
+# (sm_120) and needs a CUDA 12.8+ wheel; a default `pip install torch` may grab
+# a build that can't see the card. Install torch FIRST, from the matching index:
+#
+#   pip install torch --index-url https://download.pytorch.org/whl/cu128
+#
+# then `pip install -r ingest/requirements-embed.txt`. Verify the GPU is live:
+#   python -c "import torch; print(torch.cuda.is_available(), torch.cuda.get_device_name(0))"
+
+sentence-transformers==3.4.1
+numpy==2.2.3

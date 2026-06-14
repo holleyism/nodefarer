@@ -26,12 +26,11 @@ JSON snapshots later.
 
 | # | Stage | Status | Runs on | Notes |
 |---|---|---|---|---|
-| 0 | **Seed resolution** | TODO | anywhere | Resolve canonical seeds by verified external id. OpenAlex *search is unreliable* — duplicate/variant records, mis-dated metadata, DOI gaps (the canonical "Attention Is All You Need" record is unreachable by title/DOI). Pin IDs by hand; dedup. |
-| 1 | **Capped snowball pull** | ✅ `pull_openalex.py` | 64 GB box | Citation backbone. See below. |
-| 1b | **Typed enrichment** | TODO | 64 GB box | Add author / concept / venue nodes + typed edges (`authored_by`, `has_concept`, `published_in`) so the graph is multi-relational — required for typed/filtered expansion (the shown/unshown-by-type UX). |
-| 2 | **Neo4j load** | TODO | 64 GB box | JSONL → Neo4j via `LOAD CSV`/`apoc`. |
-| 3 | **GDS analytics** | TODO | 64 GB box | Louvain/Leiden community ids (multi-resolution → nebula hierarchy), centrality, degree-by-type, cluster quotient + per-community stats. |
-| 4 | **Text embeddings** | TODO | 64 GB + GPU box | Abstracts → vectors on the RTX 5060 Ti (bge-large/e5-large); per-node semantic kNN (for offline wormholes); vectors into Neo4j's vector index. |
+| 0 | **Seed resolution** | ✅ `resolve_seeds.py` | anywhere | Resolve canonical seeds by verified external id. OpenAlex *search is unreliable* — duplicate/variant records, mis-dated metadata, DOI gaps (the canonical "Attention Is All You Need" record is unreachable by title/DOI). Pin IDs by hand; dedup. |
+| 1 | **Capped snowball pull** | ✅ `pull_openalex.py` | 64 GB box | Citation backbone + typed enrichment (authors/concepts/venues/institutions, typed edges). See below. |
+| 2 | **Neo4j load** | ✅ `load_neo4j.py` | 64 GB box | JSONL → Neo4j. `--wipe` for a clean reload. |
+| 3 | **GDS analytics** | ✅ `gds_analyze.py` | 64 GB box | Louvain `communityId` + PageRank centrality. (Multi-resolution / degree-by-type / cluster quotient still to extend.) |
+| 4 | **Text embeddings** | ✅ `embed.py` | 64 GB + GPU box | Work title+abstract → vectors on the RTX 5060 Ti (bge-large default); per-node semantic kNN for offline wormholes. Reads the JSONL directly (no Neo4j dependency); sidecar outputs. See below. |
 | 5 | **Bundle export** | TODO | 64 GB box | Self-contained JSON the app eats: nodes+props, edges with `kind: structural\|semantic`, degree-by-type, community assignments + quotient + per-community stats, semantic kNN. |
 
 ## Connecting to Neo4j (stages 2+)
@@ -87,3 +86,31 @@ Schema (heterogeneous; props vary by type):
   binding (reifiable into Authorship nodes later without a re-crawl).
 - Derived edge props (computed later at load/GDS, no re-crawl): cross-community
   "bridge" citations, temporal reach (year delta), field-crossing, edge betweenness.
+
+## Stage 4 — text embeddings + semantic kNN
+
+Embeds **work** title+abstract into a unit-norm vector space (default
+`BAAI/bge-large-en-v1.5`, 1024-dim) and computes exact cosine kNN per work — the
+offline "wormhole" candidates (the Hopfield→attention link is work↔work). Reads
+`*.nodes.jsonl` directly, so it doesn't care whether Neo4j is loaded; outputs are
+sidecar files under `ingest/data/` (gitignored).
+
+Runs on the GPU box. Install torch from the CUDA-matched index first (the RTX
+5060 Ti is Blackwell — needs cu128+), then the rest:
+
+```bash
+pip install torch --index-url https://download.pytorch.org/whl/cu128
+pip install -r ingest/requirements-embed.txt
+
+python3 ingest/embed.py --device cuda --batch-size 64 --knn 15
+```
+
+Outputs (`<base>` = `ingest/data/openalex`):
+- `<base>.embeddings.f32.npy` — float32 `[N, dim]`, L2-normalised (memmap)
+- `<base>.embeddings.ids.json` — node ids parallel to the matrix rows
+- `<base>.embeddings.meta.json` — model / dim / count / types
+- `<base>.knn.jsonl` — per node `{"id", "neighbors": [[id, sim], …]}`
+
+Embedding is **resumable** (pre-sized memmap + `.progress` marker; re-run to
+continue). kNN is recomputed from the vectors (`--knn-only` to skip re-embedding).
+Pushing vectors into a Neo4j vector index is deliberately a later, separate step.
