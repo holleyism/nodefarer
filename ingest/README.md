@@ -31,7 +31,7 @@ JSON snapshots later.
 | 2 | **Neo4j load** | ✅ `load_neo4j.py` | 64 GB box | JSONL → Neo4j. `--wipe` for a clean reload. |
 | 3 | **GDS analytics** | ✅ `gds_analyze.py` | 64 GB box | Louvain `communityId` + PageRank centrality. (Multi-resolution / degree-by-type / cluster quotient still to extend.) |
 | 4 | **Text embeddings** | ✅ `embed.py` | 64 GB + GPU box | Work title+abstract → vectors on the RTX 5060 Ti (bge-large default); per-node semantic kNN for offline wormholes. Reads the JSONL directly (no Neo4j dependency); sidecar outputs. See below. |
-| 5 | **Bundle export** | TODO | 64 GB box | Self-contained JSON the app eats: nodes+props, edges with `kind: structural\|semantic`, degree-by-type, community assignments + quotient + per-community stats, semantic kNN. |
+| 5 | **Bundle export** | ✅ `export_bundle.py` | 64 GB box | Bounded demo slice → self-contained JSON the app eats: nodes+props, edges with `kind: structural\|semantic`, community assignments + per-community stats, semantic wormholes from the kNN sidecar. See below. |
 
 ## Connecting to Neo4j (stages 2+)
 
@@ -114,3 +114,26 @@ Outputs (`<base>` = `ingest/data/openalex`):
 Embedding is **resumable** (pre-sized memmap + `.progress` marker; re-run to
 continue). kNN is recomputed from the vectors (`--knn-only` to skip re-embedding).
 Pushing vectors into a Neo4j vector index is deliberately a later, separate step.
+
+## Stage 5 — bundle export (bounded demo slice)
+
+The store is 6-digit; the browser scene is always bounded. This bakes a
+*session/tour snapshot* — not the whole graph. Slice growth: **best-first BFS
+over CITES ordered by PageRank** from the pinned seeds (so it follows the
+high-signal citation backbone, not the 19k low-value Hopfield citers), then
+folds in incident attribute nodes (authors capped per work; concepts/venues/
+institutions kept), induces the structural subgraph, and adds semantic
+"wormhole" edges from the stage-4 `*.knn.jsonl` (both endpoints in-slice, cosine
+≥ threshold, not already a citation). Zero backend — the app fetches one file.
+
+Reads Neo4j (so run it after load + GDS) + `ingest/data/openalex.knn.jsonl`.
+
+```bash
+ingest/.venv/bin/python ingest/export_bundle.py --max-works 2000
+```
+
+Output `ingest/data/bundle.json` (gitignored): `{meta, nodes[], edges[],
+communities[]}`. Knobs: `--max-works` / `--max-hops` (slice size), `--authors-
+per-work` (0 to skip authors), `--abstract-chars` (0=omit, -1=full), `--sem-
+threshold` / `--sem-per-node` (wormhole density). The app-wiring step copies the
+bundle into the served dir.
