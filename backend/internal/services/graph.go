@@ -45,6 +45,14 @@ func labelForID(id string) string {
 	}
 }
 
+// Entry grows a bounded multi-hop neighborhood with a per-node fan-out cap, so
+// no single node contributes a hairball.
+const (
+	entryMaxNodes = 100
+	entryFanout   = 10
+	entryMaxHops  = 3
+)
+
 type relMeta struct{ kind, label string }
 
 var rels = map[string]relMeta{
@@ -87,6 +95,47 @@ func str(v any) string {
 		return sv
 	}
 	return ""
+}
+
+func groupByLabel(ids []string) map[string][]string {
+	g := map[string][]string{}
+	for _, id := range ids {
+		l := labelForID(id)
+		g[l] = append(g[l], id)
+	}
+	return g
+}
+
+// topNeighbors returns, per frontier node, its top-`fanout` neighbors by
+// PageRank (excluding `seen`), deduped. Grouped by label so each MATCH hits the
+// id index.
+const fanoutCypher = `
+UNWIND $ids AS fid
+MATCH (a:%s {id: fid})-[]-(n)
+WITH fid, n WHERE NOT n.id IN $seen
+WITH fid, n ORDER BY coalesce(n.pagerank, 0.0) DESC
+WITH fid, collect(DISTINCT n.id)[0..$fanout] AS ns
+UNWIND ns AS nid RETURN DISTINCT nid AS id
+`
+
+func (s *GraphService) topNeighbors(ctx context.Context, frontier, seen []string, fanout int) ([]string, error) {
+	var out []string
+	for label, fids := range groupByLabel(frontier) {
+		if len(fids) == 0 {
+			continue
+		}
+		recs, err := s.run(ctx, fmt.Sprintf(fanoutCypher, label),
+			map[string]any{"ids": fids, "seen": seen, "fanout": fanout})
+		if err != nil {
+			return nil, err
+		}
+		for _, r := range recs {
+			if id := str(r.AsMap()["id"]); id != "" {
+				out = append(out, id)
+			}
+		}
+	}
+	return out, nil
 }
 
 // ── nodes ───────────────────────────────────────────────────────────────────
@@ -196,7 +245,7 @@ func (s *GraphService) inducedEdges(ctx context.Context, ids, touch []string) ([
 func (s *GraphService) Entry(ctx context.Context, req models.EntryRequest) (models.View, error) {
 	max := req.MaxNodes
 	if max <= 0 || max > 1000 {
-		max = 250
+		max = entryMaxNodes
 	}
 	anchor := req.ID
 	if req.Mode == "search" {
@@ -221,20 +270,34 @@ func (s *GraphService) Entry(ctx context.Context, req models.EntryRequest) (mode
 		anchor = str(recs[0].AsMap()["id"])
 	}
 
-	// anchor + top (max-1) neighbors by pagerank
-	cypher := fmt.Sprintf(
-		"MATCH (a:%s {id:$id}) OPTIONAL MATCH (a)--(nb) WITH nb WHERE nb IS NOT NULL "+
-			"RETURN nb.id AS id ORDER BY coalesce(nb.pagerank,0.0) DESC LIMIT $k",
-		labelForID(anchor))
-	recs, err := s.run(ctx, cypher, map[string]any{"id": anchor, "k": max - 1})
-	if err != nil {
-		return models.View{}, err
-	}
-	ids := []string{anchor}
-	for _, r := range recs {
-		if id := str(r.AsMap()["id"]); id != "" {
-			ids = append(ids, id)
+	// Per-node fan-out BFS: each node contributes only its top-`fanout`
+	// neighbors (by PageRank), so the scene is multi-hop, not a star.
+	selected := map[string]bool{anchor: true}
+	frontier := []string{anchor}
+	for hop := 0; hop < entryMaxHops && len(frontier) > 0 && len(selected) < max; hop++ {
+		seen := make([]string, 0, len(selected))
+		for id := range selected {
+			seen = append(seen, id)
 		}
+		cand, err := s.topNeighbors(ctx, frontier, seen, entryFanout)
+		if err != nil {
+			return models.View{}, err
+		}
+		var next []string
+		for _, id := range cand {
+			if len(selected) >= max {
+				break
+			}
+			if !selected[id] {
+				selected[id] = true
+				next = append(next, id)
+			}
+		}
+		frontier = next
+	}
+	ids := make([]string, 0, len(selected))
+	for id := range selected {
+		ids = append(ids, id)
 	}
 	nodes, err := s.getNodes(ctx, ids)
 	if err != nil {
