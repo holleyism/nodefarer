@@ -1,0 +1,5 @@
+# compiled binary
+nodefarer-api
+/api
+# local env (covered by root .gitignore too, kept explicit)
+.env
