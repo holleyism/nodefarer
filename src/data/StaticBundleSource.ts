@@ -132,8 +132,8 @@ export class StaticBundleSource implements GraphSource {
     return this.buildView(ids, { anchorId: view.anchorId, corridor, addedBy, bounds: view.bounds })
   }
 
-  async collapse(view: View, nodeId: string): Promise<View> {
-    return collapseView(view, nodeId)
+  async collapse(view: View, nodeId: string, fromId: string): Promise<View> {
+    return collapseView(view, nodeId, fromId)
   }
 
   async filter(view: View, predicate: Predicate): Promise<View> {

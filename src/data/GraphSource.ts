@@ -62,7 +62,8 @@ export interface View extends Graph {
 export interface GraphSource {
   entry(e: EntryMode): Promise<View>
   expand(view: View, nodeId: string, rule?: ExpandRule): Promise<View>
-  collapse(view: View, nodeId: string): Promise<View>
+  // fromId = the current node (BFS root); collapse prunes nodeId's subtree.
+  collapse(view: View, nodeId: string, fromId: string): Promise<View>
   filter(view: View, predicate: Predicate): Promise<View>
   search(query: string, kind?: 'text' | 'semantic'): Promise<Candidate[]>
   neighbors(nodeId: string, rule?: ExpandRule): Promise<Candidate[]>

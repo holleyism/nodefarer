@@ -164,7 +164,8 @@ export default function App() {
     }, 0)
   }
   const handleExpand = (id: string) => reView((s, v) => s.expand(v, id))
-  const handleCollapse = (id: string) => reView((s, v) => s.collapse(v, id))
+  const handleCollapse = (id: string) =>
+    reView((s, v) => s.collapse(v, id, currentId ?? v.anchorId))
 
   // Dev-only handle for the headless smoke test (scripts/smoke.mjs).
   useEffect(() => {

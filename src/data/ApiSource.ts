@@ -93,8 +93,8 @@ export class ApiSource implements GraphSource {
     })
   }
 
-  async collapse(view: View, nodeId: string): Promise<View> {
-    return collapseView(view, nodeId)
+  async collapse(view: View, nodeId: string, fromId: string): Promise<View> {
+    return collapseView(view, nodeId, fromId)
   }
 
   async filter(view: View, predicate: Predicate): Promise<View> {

@@ -144,23 +144,67 @@ export function assembleView(
 
 // ── client-side view operations (shared by both sources) ────────────────────
 
-// Remove nodes the given node introduced that aren't on the corridor and have
-// no other in-view neighbor — folds an expansion back up.
-export function collapseView(view: View, nodeId: string): View {
-  const keep = new Set(view.nodes.map((n) => n.id))
-  const addedBy = new Map(view.addedBy)
-  for (const [id, parent] of view.addedBy) {
-    if (parent !== nodeId || view.corridor.includes(id)) continue
-    const others = (view.neighbors.get(id) ?? []).filter((o) => o !== nodeId && keep.has(o))
-    if (others.length === 0) {
-      keep.delete(id)
-      addedBy.delete(id)
+// Fold a node back up. Rooted at `fromId` (the ship's current node): keep only
+// the BFS shortest-path edge into `nodeId`, drop its other edges, and remove
+// everything in its subtree (nodes only reachable *through* it). Collapsing the
+// current node clears everything but it. O(V+E) over a bounded view.
+export function collapseView(view: View, nodeId: string, fromId: string): View {
+  if (nodeId === fromId) {
+    const root = view.nodeById.get(fromId)
+    return assembleView(root ? [root] : [], [], {
+      anchorId: view.anchorId,
+      corridor: [fromId],
+      addedBy: new Map(),
+      bounds: view.bounds,
+    })
+  }
+
+  // BFS tree from the current node over the view.
+  const parent = new Map<string, string>()
+  const children = new Map<string, string[]>()
+  const seen = new Set([fromId])
+  const queue = [fromId]
+  while (queue.length) {
+    const cur = queue.shift()!
+    for (const nb of view.neighbors.get(cur) ?? []) {
+      if (seen.has(nb)) continue
+      seen.add(nb)
+      parent.set(nb, cur)
+      const kids = children.get(cur)
+      if (kids) kids.push(nb)
+      else children.set(cur, [nb])
+      queue.push(nb)
     }
   }
-  const nodes = view.nodes.filter((n) => keep.has(n.id))
-  return assembleView(nodes, view.edges, {
+
+  // Descendants of nodeId (everything beyond it) → removed.
+  const remove = new Set<string>()
+  const stack = [...(children.get(nodeId) ?? [])]
+  while (stack.length) {
+    const x = stack.pop()!
+    if (remove.has(x)) continue
+    remove.add(x)
+    for (const c of children.get(x) ?? []) stack.push(c)
+  }
+
+  const keepNodes = view.nodes.filter((n) => !remove.has(n.id))
+  const keepIds = new Set(keepNodes.map((n) => n.id))
+  const par = parent.get(nodeId)
+  const edges = view.edges.filter((e) => {
+    if (!keepIds.has(e.source) || !keepIds.has(e.target)) return false
+    // For the collapsed node, keep ONLY its path (parent) edge.
+    if (e.source === nodeId || e.target === nodeId) {
+      return (
+        par != null &&
+        ((e.source === par && e.target === nodeId) || (e.target === par && e.source === nodeId))
+      )
+    }
+    return true
+  })
+  const addedBy = new Map([...view.addedBy].filter(([id]) => keepIds.has(id)))
+  return assembleView(keepNodes, edges, {
     anchorId: view.anchorId,
-    corridor: view.corridor.filter((id) => keep.has(id)),
+    corridor: view.corridor.filter((id) => keepIds.has(id)),
     addedBy,
     bounds: view.bounds,
   })
