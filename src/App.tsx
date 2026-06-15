@@ -4,6 +4,7 @@ import type { ViewMode } from './types'
 import { Canvas } from '@react-three/fiber'
 import { syntheticBundle } from './data/generateGraph'
 import { StaticBundleSource } from './data/StaticBundleSource'
+import { ApiSource } from './data/ApiSource'
 import type { GraphSource, View } from './data/GraphSource'
 import type { Bundle } from './data/bundle'
 import { shortestPath } from './data/shortestPath'
@@ -40,24 +41,43 @@ export default function App() {
   // Blast doors: shut the window while the universe is being (re)laid out.
   const [doorsClosed, setDoorsClosed] = useState(false)
 
-  // Load the bundle (real if served, synthetic fallback) and land on the seed.
+  // Pick the data source and land on an entry view. VITE_API_URL → live
+  // ApiSource (Go/Neo4j); otherwise the static bundle (served, else synthetic).
+  // A failing API falls back to the bundle so dev never hard-hangs.
   useEffect(() => {
     let cancelled = false
     ;(async () => {
-      let bundle: Bundle
-      try {
-        const res = await fetch(BUNDLE_URL)
-        if (!res.ok) throw new Error(`bundle ${res.status}`)
-        bundle = await res.json()
-      } catch {
-        bundle = syntheticBundle(7)
+      const apiUrl = import.meta.env.VITE_API_URL as string | undefined
+      let source: GraphSource | null = null
+      let v: View | null = null
+
+      if (apiUrl) {
+        try {
+          const s = new ApiSource(apiUrl, import.meta.env.VITE_API_TOKEN as string | undefined)
+          v = await s.entry({ mode: 'node' })
+          source = s
+        } catch (err) {
+          console.warn('ApiSource unavailable, falling back to bundle:', err)
+        }
       }
-      if (cancelled) return
-      const source = new StaticBundleSource(bundle)
-      sourceRef.current = source
-      const v = await source.entry({ mode: 'node' })
+
+      if (!source) {
+        let bundle: Bundle
+        try {
+          const res = await fetch(BUNDLE_URL)
+          if (!res.ok) throw new Error(`bundle ${res.status}`)
+          bundle = await res.json()
+        } catch {
+          bundle = syntheticBundle(7)
+        }
+        const s = new StaticBundleSource(bundle)
+        v = await s.entry({ mode: 'node' })
+        source = s
+      }
+
+      if (cancelled || !v) return
       runForceLayout(v)
-      if (cancelled) return
+      sourceRef.current = source
       setView(v)
       setCurrentId(v.anchorId)
     })()

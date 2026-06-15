@@ -1,0 +1,117 @@
+import type { BundleEdge, BundleNode } from './bundle'
+import type { Candidate, EntryMode, ExpandRule, GraphSource, Predicate, View } from './GraphSource'
+import { Materializer, assembleView, collapseView, filterView } from './viewBuilder'
+
+const DEFAULT_MAX_NODES = 250
+
+interface ServerView {
+  anchor?: string
+  nodes: BundleNode[]
+  edges: BundleEdge[]
+}
+
+// Live source: the Go/Chi backend over Neo4j (backend/). The server returns
+// bundle-shaped JSON, so render mapping + collapse/filter reuse the exact shared
+// code StaticBundleSource uses — only topology (entry/expand/search/neighbors)
+// goes over the wire.
+export class ApiSource implements GraphSource {
+  private mat = new Materializer()
+
+  constructor(
+    private baseUrl: string,
+    private token?: string,
+  ) {
+    this.baseUrl = baseUrl.replace(/\/$/, '')
+  }
+
+  private headers(json = false): HeadersInit {
+    const h: Record<string, string> = {}
+    if (json) h['Content-Type'] = 'application/json'
+    if (this.token) h['Authorization'] = `Bearer ${this.token}`
+    return h
+  }
+
+  private async post<T>(path: string, body: unknown): Promise<T> {
+    const res = await fetch(`${this.baseUrl}/api/v1${path}`, {
+      method: 'POST',
+      headers: this.headers(true),
+      body: JSON.stringify(body),
+    })
+    if (!res.ok) throw new Error(`${path} ${res.status}: ${await res.text()}`)
+    return res.json() as Promise<T>
+  }
+
+  private async get<T>(path: string, params: Record<string, string | number | undefined>): Promise<T> {
+    const q = new URLSearchParams()
+    for (const [k, v] of Object.entries(params)) if (v != null && v !== '') q.set(k, String(v))
+    const res = await fetch(`${this.baseUrl}/api/v1${path}?${q}`, { headers: this.headers() })
+    if (!res.ok) throw new Error(`${path} ${res.status}: ${await res.text()}`)
+    return res.json() as Promise<T>
+  }
+
+  async entry(e: EntryMode): Promise<View> {
+    const body =
+      e.mode === 'search'
+        ? { mode: 'search', query: e.query, kind: e.kind, maxNodes: DEFAULT_MAX_NODES }
+        : { mode: 'node', id: e.mode === 'node' ? e.id : undefined, maxNodes: DEFAULT_MAX_NODES }
+    const sv = await this.post<ServerView>('/entry', body)
+    const anchor = sv.anchor ?? sv.nodes[0]?.id ?? ''
+    const nodes = sv.nodes.map((n) => this.mat.node(n))
+    const edges = sv.edges.map((ed) => this.mat.edge(ed))
+    return assembleView(nodes, edges, {
+      anchorId: anchor,
+      corridor: [anchor],
+      addedBy: new Map(),
+      bounds: { anchor, maxNodes: DEFAULT_MAX_NODES },
+    })
+  }
+
+  async expand(view: View, nodeId: string, rule: ExpandRule = {}): Promise<View> {
+    const have = view.nodes.map((n) => n.id)
+    const sv = await this.post<ServerView>('/expand', {
+      id: nodeId,
+      have,
+      rel: rule.relType,
+      limit: rule.limit,
+    })
+    const haveSet = new Set(have)
+    // Merge delta into the in-hand view, reusing cached instances (positions).
+    const nodeById = new Map(view.nodes.map((n) => [n.id, n]))
+    const addedBy = new Map(view.addedBy)
+    for (const bn of sv.nodes) {
+      nodeById.set(bn.id, this.mat.node(bn))
+      if (!haveSet.has(bn.id) && !addedBy.has(bn.id)) addedBy.set(bn.id, nodeId)
+    }
+    const edgeById = new Map(view.edges.map((ed) => [ed.id, ed]))
+    for (const be of sv.edges) edgeById.set(be.id, this.mat.edge(be))
+    const corridor = view.corridor.includes(nodeId) ? view.corridor : [...view.corridor, nodeId]
+    return assembleView([...nodeById.values()], [...edgeById.values()], {
+      anchorId: view.anchorId,
+      corridor,
+      addedBy,
+      bounds: view.bounds,
+    })
+  }
+
+  async collapse(view: View, nodeId: string): Promise<View> {
+    return collapseView(view, nodeId)
+  }
+
+  async filter(view: View, predicate: Predicate): Promise<View> {
+    return filterView(view, predicate)
+  }
+
+  async search(query: string, kind: 'text' | 'semantic' = 'text'): Promise<Candidate[]> {
+    if (!query.trim()) return []
+    return this.get<Candidate[]>('/search', { q: query, kind })
+  }
+
+  // Semantic neighbors of a work via the vector index (server /similar).
+  async similar(id: string, limit?: number): Promise<Candidate[]> {
+    return this.get<Candidate[]>('/similar', { id, limit })
+  }
+
+  async neighbors(nodeId: string, rule: ExpandRule = {}): Promise<Candidate[]> {
+    return this.get<Candidate[]>('/neighbors', { id: nodeId, rel: rule.relType, limit: rule.limit })
+  }
+}

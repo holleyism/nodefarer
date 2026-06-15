@@ -1,57 +1,22 @@
-import type { Graph, GraphEdge, GraphNode, NodeType } from '../types'
 import type { Bundle, BundleEdge, BundleNode } from './bundle'
-import type {
-  Candidate,
-  EntryMode,
-  ExpandRule,
-  GraphSource,
-  Predicate,
-  View,
-  ViewBounds,
-} from './GraphSource'
-
-// Community → galaxy colour (works); cycled deterministically by sorted id.
-const COMMUNITY_COLORS = [
-  '#66b8ff', '#ffb86b', '#7dffa8', '#ff7de9', '#fff37d',
-  '#9d8bff', '#6bffe0', '#ff8a8a', '#b8ff6b', '#7da9ff',
-  '#ff9d5c', '#5cffd6', '#d68bff', '#a8ff7d', '#7d8bff',
-]
-// Attribute nodes have no community — fixed, muted, per-type colours.
-const TYPE_COLORS: Record<NodeType, string> = {
-  work: '#66b8ff', // overridden by community below
-  author: '#8fa9c8',
-  concept: '#7dffa8',
-  venue: '#ffd37d',
-  institution: '#ff9db1',
-}
+import type { Candidate, EntryMode, ExpandRule, GraphSource, Predicate, View, ViewBounds } from './GraphSource'
+import { Materializer, assembleView, collapseView, filterView } from './viewBuilder'
 
 const DEFAULT_MAX_NODES = 250
 const DEFAULT_EXPAND_LIMIT = 12
 
-function coerce(v: unknown): string | number {
-  if (typeof v === 'number' || typeof v === 'string') return v
-  return String(v)
-}
-
-// StaticBundleSource holds the whole (already-bounded) bundle in memory and
-// serves the GraphSource contract over it. The materialized GraphNode/GraphEdge
-// instances are cached so positions assigned by the layout persist across views
-// (expand reuses the same instances; only new ones get laid out).
+// Serves the GraphSource contract over the whole (already-bounded) bundle held
+// in memory. Topology (entry/expand/neighbors) comes from local adjacency;
+// collapse/filter are the shared client-side view ops; render mapping is shared
+// via Materializer/assembleView (identical to ApiSource).
 export class StaticBundleSource implements GraphSource {
   private bnode = new Map<string, BundleNode>()
   private bedge = new Map<string, BundleEdge>()
   private adj = new Map<string, { edgeId: string; other: string }[]>()
-  private commColor = new Map<number, string>()
-
-  private rnode = new Map<string, GraphNode>()
-  private redge = new Map<string, GraphEdge>()
+  private mat = new Materializer()
 
   constructor(private bundle: Bundle) {
     for (const n of bundle.nodes) this.bnode.set(n.id, n)
-    const comms = [...new Set(bundle.nodes.map((n) => n.community).filter((c): c is number => c != null))]
-    comms.sort((a, b) => a - b)
-    comms.forEach((c, i) => this.commColor.set(c, COMMUNITY_COLORS[i % COMMUNITY_COLORS.length]))
-
     for (const e of bundle.edges) {
       this.bedge.set(e.id, e)
       this.push(e.source, e.id, e.target)
@@ -73,116 +38,28 @@ export class StaticBundleSource implements GraphSource {
     return (this.bnode.get(id)?.pagerank as number) ?? 0
   }
 
-  // ── render mapping ──────────────────────────────────────────────────────
-  private materializeNode(id: string): GraphNode | undefined {
-    const cached = this.rnode.get(id)
-    if (cached) return cached
-    const b = this.bnode.get(id)
-    if (!b) return undefined
-    const color = b.community != null ? this.commColor.get(b.community)! : TYPE_COLORS[b.type]
-    const node: GraphNode = {
-      id: b.id,
-      // Some OpenAlex records have no display_name — fall back to the id so the
-      // UI (sort/labels/search) never hits a null name.
-      name: b.name ?? b.id,
-      type: b.type,
-      community: b.community,
-      pagerank: b.pagerank,
-      color,
-      properties: this.displayProps(b),
-    }
-    this.rnode.set(id, node)
-    return node
-  }
-
-  private displayProps(b: BundleNode): Record<string, string | number> {
-    const p: Record<string, string | number> = {}
-    const put = (k: string, v: unknown) => {
-      if (v != null && v !== '') p[k] = coerce(v)
-    }
-    switch (b.type) {
-      case 'work':
-        put('Year', b.year)
-        put('Field', b.field)
-        put('Cited by', b.cited_by)
-        put('Community', b.community)
-        break
-      case 'concept':
-        put('Level', b.level)
-        break
-      case 'venue':
-        put('Type', b.venue_type)
-        break
-      case 'institution':
-        put('Country', b.country)
-        put('Type', b.inst_type)
-        break
-    }
-    return p
-  }
-
-  private materializeEdge(edgeId: string): GraphEdge {
-    const cached = this.redge.get(edgeId)
-    if (cached) return cached
-    const b = this.bedge.get(edgeId)!
-    const props: Record<string, string | number> = {}
-    if (b.kind === 'semantic') {
-      // NodePanel reads `Similarity` for the wormhole chip.
-      const sim = b.props?.similarity ?? b.props?.Similarity
-      if (sim != null) props.Similarity = sim
-    } else if (b.props) {
-      for (const [k, v] of Object.entries(b.props)) props[k] = coerce(v)
-    }
-    const edge: GraphEdge = {
-      id: b.id,
-      source: b.source,
-      target: b.target,
-      kind: b.kind,
-      label: b.label,
-      props,
-    }
-    this.redge.set(edgeId, edge)
-    return edge
-  }
-
-  // ── view assembly ───────────────────────────────────────────────────────
+  // Materialize a node/edge id set into a View, inducing edges from adjacency.
   private buildView(
     ids: Set<string>,
     meta: { anchorId: string; corridor: string[]; addedBy: Map<string, string>; bounds: ViewBounds },
   ): View {
-    const nodes: GraphNode[] = []
+    const nodes = []
     for (const id of ids) {
-      const n = this.materializeNode(id)
-      if (n) nodes.push(n)
+      const b = this.bnode.get(id)
+      if (b) nodes.push(this.mat.node(b))
     }
-    const edges: GraphEdge[] = []
-    const seenEdge = new Set<string>()
+    const edges = []
+    const seen = new Set<string>()
     for (const id of ids) {
       for (const { edgeId, other } of this.neighborsOf(id)) {
-        if (!ids.has(other) || seenEdge.has(edgeId)) continue
-        seenEdge.add(edgeId)
-        edges.push(this.materializeEdge(edgeId))
+        if (!ids.has(other) || seen.has(edgeId)) continue
+        seen.add(edgeId)
+        edges.push(this.mat.edge(this.bedge.get(edgeId)!))
       }
     }
-    const nodeById = new Map(nodes.map((n) => [n.id, n]))
-    const edgeById = new Map(edges.map((e) => [e.id, e]))
-    const neighbors = new Map<string, string[]>()
-    const incident = new Map<string, GraphEdge[]>()
-    for (const n of nodes) {
-      neighbors.set(n.id, [])
-      incident.set(n.id, [])
-    }
-    for (const e of edges) {
-      neighbors.get(e.source)?.push(e.target)
-      neighbors.get(e.target)?.push(e.source)
-      incident.get(e.source)?.push(e)
-      incident.get(e.target)?.push(e)
-    }
-    const graph: Graph = { nodes, edges, nodeById, edgeById, neighbors, incident }
-    return { ...graph, anchorId: meta.anchorId, corridor: meta.corridor, addedBy: meta.addedBy, bounds: meta.bounds }
+    return assembleView(nodes, edges, meta)
   }
 
-  // Pick the landing node: explicit id → first seed → highest-pagerank work.
   private defaultAnchor(): string {
     const seed = this.bundle.meta.seeds?.find((s) => this.bnode.has(s))
     if (seed) return seed
@@ -191,7 +68,6 @@ export class StaticBundleSource implements GraphSource {
     return best.id
   }
 
-  // ── contract ────────────────────────────────────────────────────────────
   async entry(e: EntryMode): Promise<View> {
     let anchor: string
     if (e.mode === 'search') {
@@ -247,46 +123,11 @@ export class StaticBundleSource implements GraphSource {
   }
 
   async collapse(view: View, nodeId: string): Promise<View> {
-    const ids = new Set(view.nodes.map((n) => n.id))
-    const addedBy = new Map(view.addedBy)
-    // Remove nodes this node introduced that aren't on the corridor and have no
-    // other in-view neighbor besides nodeId.
-    for (const [id, parent] of view.addedBy) {
-      if (parent !== nodeId || view.corridor.includes(id)) continue
-      const others = this.neighborsOf(id).filter(({ other }) => other !== nodeId && ids.has(other))
-      if (others.length === 0) {
-        ids.delete(id)
-        addedBy.delete(id)
-      }
-    }
-    return this.buildView(ids, {
-      anchorId: view.anchorId,
-      corridor: view.corridor,
-      addedBy,
-      bounds: view.bounds,
-    })
+    return collapseView(view, nodeId)
   }
 
   async filter(view: View, predicate: Predicate): Promise<View> {
-    const keep = (id: string): boolean => {
-      if (id === view.anchorId || view.corridor.includes(id)) return true
-      const b = this.bnode.get(id)
-      if (!b) return false
-      if (predicate.nodeTypes && !predicate.nodeTypes.includes(b.type)) return false
-      if (predicate.pagerankMin != null && (b.pagerank ?? 0) < predicate.pagerankMin) return false
-      const year = b.year as number | undefined
-      if (predicate.yearMin != null && (year == null || year < predicate.yearMin)) return false
-      if (predicate.yearMax != null && (year == null || year > predicate.yearMax)) return false
-      return true
-    }
-    const ids = new Set(view.nodes.map((n) => n.id).filter(keep))
-    const addedBy = new Map([...view.addedBy].filter(([id]) => ids.has(id)))
-    return this.buildView(ids, {
-      anchorId: view.anchorId,
-      corridor: view.corridor.filter((id) => ids.has(id)),
-      addedBy,
-      bounds: { ...view.bounds, predicate },
-    })
+    return filterView(view, predicate)
   }
 
   async search(query: string, _kind: 'text' | 'semantic' = 'text'): Promise<Candidate[]> {
