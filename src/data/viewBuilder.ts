@@ -157,6 +157,57 @@ export function collapseView(view: View, nodeId: string): View {
   })
 }
 
+// Render-time declutter: keep each node's top-`budget` structural edges (ranked
+// by the other endpoint's PageRank); wormholes always pass. An edge shows only
+// if it's within BOTH endpoints' budget (mutual top-N) — so a hub collapses to
+// its strongest links instead of a hairball. Per-edge `shown`/`hidden`
+// overrides win; nodes left with no visible edge drop out unless `specials`.
+// Pure over the laid-out view (no relayout); reuses node/edge instances.
+export function budgetView(
+  view: View,
+  budget: number,
+  shown: Set<string>,
+  hidden: Set<string>,
+  specials: Set<string>,
+): { display: View; visibleEdgeIds: Set<string> } {
+  const topPerNode = new Map<string, Set<string>>()
+  for (const n of view.nodes) {
+    const structural = (view.incident.get(n.id) ?? []).filter((e) => e.kind !== 'semantic')
+    structural.sort((a, b) => {
+      const oa = a.source === n.id ? a.target : a.source
+      const ob = b.source === n.id ? b.target : b.source
+      return (view.nodeById.get(ob)?.pagerank ?? 0) - (view.nodeById.get(oa)?.pagerank ?? 0)
+    })
+    topPerNode.set(n.id, new Set(structural.slice(0, budget).map((e) => e.id)))
+  }
+  const passes = (e: GraphEdge) =>
+    e.kind === 'semantic' ||
+    (!!topPerNode.get(e.source)?.has(e.id) && !!topPerNode.get(e.target)?.has(e.id))
+
+  const visibleEdgeIds = new Set<string>()
+  const edges: GraphEdge[] = []
+  for (const e of view.edges) {
+    if (hidden.has(e.id)) continue
+    if (shown.has(e.id) || passes(e)) {
+      visibleEdgeIds.add(e.id)
+      edges.push(e)
+    }
+  }
+  const nodeIds = new Set(specials)
+  for (const e of edges) {
+    nodeIds.add(e.source)
+    nodeIds.add(e.target)
+  }
+  const nodes = view.nodes.filter((n) => nodeIds.has(n.id))
+  const display = assembleView(nodes, edges, {
+    anchorId: view.anchorId,
+    corridor: view.corridor,
+    addedBy: view.addedBy,
+    bounds: view.bounds,
+  })
+  return { display, visibleEdgeIds }
+}
+
 // Mask the current view by a predicate (anchor + corridor always kept).
 export function filterView(
   view: View,

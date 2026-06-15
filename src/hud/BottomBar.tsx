@@ -13,6 +13,8 @@ interface Props {
   onViewModeChange: (m: ViewMode) => void
   maxTags: number
   onMaxTagsChange: (n: number) => void
+  edgeBudget: number
+  onEdgeBudgetChange: (n: number) => void
   doorsClosed: boolean
   onToggleDoors: () => void
 }
@@ -22,6 +24,8 @@ export function BottomBar({
   onViewModeChange,
   maxTags,
   onMaxTagsChange,
+  edgeBudget,
+  onEdgeBudgetChange,
   doorsClosed,
   onToggleDoors,
 }: Props) {
@@ -48,6 +52,8 @@ export function BottomBar({
         onViewModeChange={onViewModeChange}
         maxTags={maxTags}
         onMaxTagsChange={onMaxTagsChange}
+        edgeBudget={edgeBudget}
+        onEdgeBudgetChange={onEdgeBudgetChange}
         doorsClosed={doorsClosed}
         onToggleDoors={onToggleDoors}
       />

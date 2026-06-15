@@ -10,14 +10,12 @@ import type { Graph, GraphEdge } from '../types'
 const HUD = '#7fd4ff'
 const WORM = '#c6a3ff'
 
-// The highlight is two bowed arcs flanking the edge ( a lens ). Each arc spans
-// T_A..T_B of the edge, bowing out to half-width at the middle and tapering back
-// toward the edge at its ends — one smooth, single-valued curve per side, so it
-// never crosses itself (which is what piled up brightness on the old hooks).
-const T_A = 0.16
-const T_B = 0.84
-const ARC_N = 20
-const ARC_GAP = 0.9 // min distance the arc holds off the edge, so it never touches it
+// The highlight is two straight rails flanking the edge ( | edge | ), spanning
+// T_A..T_B at a fixed offset on each side — held a little off the edge so they
+// read as a frame, not a doubled line.
+const T_A = 0.14
+const T_B = 0.86
+const ARC_N = 2
 const DUMMY = Array.from({ length: ARC_N }, () => [0, 0, 0] as [number, number, number])
 
 interface BracketProps {
@@ -102,14 +100,11 @@ function EdgeBracket({ edge, graph, pinned }: BracketProps) {
       for (let i = 0; i < ARC_N; i++) {
         const u = i / (ARC_N - 1)
         const t = T_A + (T_B - T_A) * u
-        // One continuous sine arch (no flat middle / shoulders): bows out to hw
-        // at the center, holding a GAP at the ends so it never touches the edge.
-        const bow = Math.sin(Math.PI * u)
-        const off = ARC_GAP + (hw - ARC_GAP) * bow
+        // Straight rail: constant offset from the edge (flash widens it briefly).
         s.p
           .copy(av)
           .addScaledVector(s.dir, len * t)
-          .addScaledVector(s.side, off * sign)
+          .addScaledVector(s.side, hw * sign)
         out[i * 3] = s.p.x
         out[i * 3 + 1] = s.p.y
         out[i * 3 + 2] = s.p.z

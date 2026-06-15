@@ -18,6 +18,8 @@ interface Props {
   onViewModeChange: (m: ViewMode) => void
   maxTags: number
   onMaxTagsChange: (n: number) => void
+  edgeBudget: number
+  onEdgeBudgetChange: (n: number) => void
   doorsClosed: boolean
   onToggleDoors: () => void
 }
@@ -33,6 +35,8 @@ export function OptionsMenu({
   onViewModeChange,
   maxTags,
   onMaxTagsChange,
+  edgeBudget,
+  onEdgeBudgetChange,
   doorsClosed,
   onToggleDoors,
 }: Props) {
@@ -128,6 +132,22 @@ export function OptionsMenu({
               )
             })}
           </Box>
+
+          <Typography sx={{ font: MONO, letterSpacing: 1.5, color: 'text.secondary' }}>
+            EDGES / NODE — {edgeBudget}
+          </Typography>
+          <Slider
+            size="small"
+            min={5}
+            max={50}
+            value={edgeBudget}
+            onChange={(_, v) => onEdgeBudgetChange(v as number)}
+            aria-label="Edges per node"
+            sx={{ mt: -0.5 }}
+          />
+          <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mt: -0.5, mb: 1.5 }}>
+            Show each node's strongest {edgeBudget} links (wormholes always shown).
+          </Typography>
 
           {viewMode === 'proximity' && (
             <>

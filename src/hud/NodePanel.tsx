@@ -30,8 +30,10 @@ interface LinkRowProps {
   pinned: boolean
   traveling: boolean
   canTravel: boolean
+  visible: boolean
   onTogglePin: (id: string) => void
   onHoverEdge: (id: string | null) => void
+  onSetVisible: (id: string, visible: boolean) => void
   onTravel: (id: string) => void
 }
 
@@ -44,8 +46,10 @@ function LinkRow({
   pinned,
   traveling,
   canTravel,
+  visible,
   onTogglePin,
   onHoverEdge,
+  onSetVisible,
   onTravel,
 }: LinkRowProps) {
   const worm = edge.kind === 'semantic'
@@ -69,7 +73,7 @@ function LinkRow({
       }}
     >
       <Stack direction="row" spacing={1} alignItems="center" justifyContent="space-between">
-        <Stack direction="row" spacing={1} alignItems="center" sx={{ minWidth: 0 }}>
+        <Stack direction="row" spacing={1} alignItems="center" sx={{ minWidth: 0, opacity: visible ? 1 : 0.4 }}>
           <Box component="span" sx={{ color: accent, fontSize: 13, lineHeight: 1 }}>
             {worm ? '✷' : '◇'}
           </Box>
@@ -80,23 +84,46 @@ function LinkRow({
             {other.name}
           </Typography>
         </Stack>
-        {worm ? (
-          <Chip
-            label={`≈ ${edge.props.Similarity}`}
-            size="small"
-            sx={{
-              font: MONO_SMALL,
-              letterSpacing: 0.5,
-              height: 18,
-              color: WORM,
-              borderColor: 'rgba(198,163,255,0.5)',
-              border: '1px solid',
-              bgcolor: 'transparent',
+        <Stack direction="row" spacing={0.75} alignItems="center" sx={{ flexShrink: 0 }}>
+          {worm ? (
+            <Chip
+              label={`≈ ${edge.props.Similarity}`}
+              size="small"
+              sx={{
+                font: MONO_SMALL,
+                letterSpacing: 0.5,
+                height: 18,
+                color: WORM,
+                borderColor: 'rgba(198,163,255,0.5)',
+                border: '1px solid',
+                bgcolor: 'transparent',
+              }}
+            />
+          ) : (
+            <Typography sx={{ ...SECTION_LABEL_SX, letterSpacing: 1 }}>{edge.label}</Typography>
+          )}
+          {/* Per-edge visibility toggle — show/hide in the viewport. Filled when
+              shown, hollow when budgeted/forced out. */}
+          <Box
+            component="span"
+            role="button"
+            title={visible ? 'Hide in viewport' : 'Show in viewport'}
+            onClick={(e) => {
+              e.stopPropagation()
+              onSetVisible(edge.id, !visible)
             }}
-          />
-        ) : (
-          <Typography sx={{ ...SECTION_LABEL_SX, letterSpacing: 1 }}>{edge.label}</Typography>
-        )}
+            sx={{
+              cursor: 'pointer',
+              color: visible ? accent : 'text.secondary',
+              fontSize: 12,
+              lineHeight: 1,
+              px: 0.25,
+              '&:hover': { color: accent },
+            }}
+          >
+            {visible ? '◉' : '○'}
+          </Box>
+        </Stack>
       </Stack>
 
       {pinned && (
@@ -153,8 +180,10 @@ interface Props {
   distance: number
   traveling: boolean
   pinnedEdgeIds: string[]
+  visibleEdgeIds: Set<string>
   onTogglePin: (id: string) => void
   onHoverEdge: (id: string | null) => void
+  onSetEdgeVisible: (id: string, visible: boolean) => void
   onTravel: (id: string) => void
   onExpand: (id: string) => void
   onCollapse: (id: string) => void
@@ -169,8 +198,10 @@ export function NodePanel({
   distance,
   traveling,
   pinnedEdgeIds,
+  visibleEdgeIds,
   onTogglePin,
   onHoverEdge,
+  onSetEdgeVisible,
   onTravel,
   onExpand,
   onCollapse,
@@ -292,8 +323,10 @@ export function NodePanel({
               pinned={pinnedEdgeIds.includes(edge.id)}
               traveling={traveling}
               canTravel={other.id !== currentId}
+              visible={visibleEdgeIds.has(edge.id)}
               onTogglePin={onTogglePin}
               onHoverEdge={onHoverEdge}
+              onSetVisible={onSetEdgeVisible}
               onTravel={onTravel}
             />
           ))}

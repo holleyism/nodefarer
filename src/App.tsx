@@ -1,10 +1,11 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Box, CircularProgress, Stack, Typography } from '@mui/material'
 import type { ViewMode } from './types'
 import { Canvas } from '@react-three/fiber'
 import { syntheticBundle } from './data/generateGraph'
 import { StaticBundleSource } from './data/StaticBundleSource'
 import { ApiSource } from './data/ApiSource'
+import { budgetView } from './data/viewBuilder'
 import type { GraphSource, View } from './data/GraphSource'
 import type { Bundle } from './data/bundle'
 import { shortestPath } from './data/shortestPath'
@@ -34,6 +35,11 @@ export default function App() {
   const [viewMode, setViewMode] = useState<ViewMode>('proximity')
   const [maxTags, setMaxTags] = useState(10)
   const [taggedIds, setTaggedIds] = useState<string[]>([])
+  // Edge declutter: render at most this many edges per node (mutual top-N by
+  // neighbor PageRank), with per-edge user overrides on top.
+  const [edgeBudget, setEdgeBudget] = useState(12)
+  const [shownEdgeIds, setShownEdgeIds] = useState<Set<string>>(() => new Set())
+  const [hiddenEdgeIds, setHiddenEdgeIds] = useState<Set<string>>(() => new Set())
   // Whether the camera is locked to the course while traveling. Dragging
   // mid-flight unlocks it; "follow course" (or journey's end) re-locks.
   const [following, setFollowing] = useState(true)
@@ -102,8 +108,32 @@ export default function App() {
     setSelectedId(null)
     clearEdges()
     const path = shortestPath(view, currentId, id)
+    // Force-show any budgeted-out edges along the route so the lane is visible
+    // for the whole flight.
+    if (path && path.length > 1) {
+      const reveal = new Set(shownEdgeIds)
+      for (let i = 0; i < path.length - 1; i++) {
+        const e = (view.incident.get(path[i]) ?? []).find(
+          (ed) => ed.source === path[i + 1] || ed.target === path[i + 1],
+        )
+        if (e) reveal.add(e.id)
+      }
+      setShownEdgeIds(reveal)
+    }
     // Unreachable nodes get a direct flight rather than no flight.
     setRoute(path ? path.slice(1) : [id])
+  }
+  const handleSetEdgeVisible = (id: string, visible: boolean) => {
+    setShownEdgeIds((s) => {
+      const n = new Set(s)
+      visible ? n.add(id) : n.delete(id)
+      return n
+    })
+    setHiddenEdgeIds((h) => {
+      const n = new Set(h)
+      visible ? n.delete(id) : n.add(id)
+      return n
+    })
   }
   const handleArrive = () => {
     if (route.length === 0) return
@@ -147,7 +177,18 @@ export default function App() {
     }
   })
 
-  if (!view || !currentId) {
+  // The rendered scene = the laid-out view masked by the edge budget + per-edge
+  // overrides. Pure filter; recomputed only when those inputs change.
+  const display = useMemo(() => {
+    if (!view) return null
+    const specials = new Set<string>()
+    if (currentId) specials.add(currentId)
+    if (selectedId) specials.add(selectedId)
+    for (const id of route) specials.add(id)
+    return budgetView(view, edgeBudget, shownEdgeIds, hiddenEdgeIds, specials)
+  }, [view, edgeBudget, shownEdgeIds, hiddenEdgeIds, currentId, selectedId, route])
+
+  if (!view || !currentId || !display) {
     return (
       <Box sx={{ position: 'fixed', inset: 0, bgcolor: '#02030a', display: 'grid', placeItems: 'center' }}>
         <Stack spacing={2} alignItems="center">
@@ -164,6 +205,10 @@ export default function App() {
   const selectedNode = selectedId ? view.nodeById.get(selectedId) ?? null : null
   const nextHopNode = traveling ? view.nodeById.get(route[0]) ?? null : null
   const destinationNode = traveling ? view.nodeById.get(route[route.length - 1]) ?? null : null
+  // displayGraph = the decluttered scene the viewport renders; the HUD/panel
+  // still get the full `view` so the Links list shows every edge.
+  const displayGraph = display.display
+  const visibleEdgeIds = display.visibleEdgeIds
 
   // Locks stay live in flight, with the destination always held; parked,
   // the inspected node keeps its reticle even when it falls outside the
@@ -185,7 +230,7 @@ export default function App() {
       : pinnedId && !baseTaggedIds.includes(pinnedId)
         ? [...baseTaggedIds, pinnedId]
         : baseTaggedIds
-  ).filter((id) => id !== currentId)
+  ).filter((id) => id !== currentId && displayGraph.nodeById.has(id))
 
   return (
     <Box
@@ -210,7 +255,7 @@ export default function App() {
         }}
       >
         <GraphScene
-          graph={view}
+          graph={displayGraph}
           currentNode={currentNode}
           targetNode={nextHopNode}
           selectedId={selectedId}
@@ -238,13 +283,17 @@ export default function App() {
         onViewModeChange={setViewMode}
         maxTags={maxTags}
         onMaxTagsChange={setMaxTags}
+        edgeBudget={edgeBudget}
+        onEdgeBudgetChange={setEdgeBudget}
         following={following}
         onFollow={handleFollow}
         doorsClosed={doorsClosed}
         onToggleDoors={() => setDoorsClosed(!doorsClosed)}
         pinnedEdgeIds={pinnedEdgeIds}
+        visibleEdgeIds={visibleEdgeIds}
         onTogglePin={handleTogglePin}
         onHoverEdge={setHoveredEdgeId}
+        onSetEdgeVisible={handleSetEdgeVisible}
         onSelect={handleSelect}
         onTravel={handleTravel}
         onExpand={handleExpand}

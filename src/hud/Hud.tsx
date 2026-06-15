@@ -21,13 +21,17 @@ interface Props {
   onViewModeChange: (m: ViewMode) => void
   maxTags: number
   onMaxTagsChange: (n: number) => void
+  edgeBudget: number
+  onEdgeBudgetChange: (n: number) => void
   following: boolean
   onFollow: () => void
   doorsClosed: boolean
   onToggleDoors: () => void
   pinnedEdgeIds: string[]
+  visibleEdgeIds: Set<string>
   onTogglePin: (id: string) => void
   onHoverEdge: (id: string | null) => void
+  onSetEdgeVisible: (id: string, visible: boolean) => void
   onSelect: (id: string) => void
   onTravel: (id: string) => void
   onExpand: (id: string) => void
@@ -45,13 +49,17 @@ export function Hud({
   onViewModeChange,
   maxTags,
   onMaxTagsChange,
+  edgeBudget,
+  onEdgeBudgetChange,
   following,
   onFollow,
   doorsClosed,
   onToggleDoors,
   pinnedEdgeIds,
+  visibleEdgeIds,
   onTogglePin,
   onHoverEdge,
+  onSetEdgeVisible,
   onSelect,
   onTravel,
   onExpand,
@@ -156,6 +164,8 @@ export function Hud({
         onViewModeChange={onViewModeChange}
         maxTags={maxTags}
         onMaxTagsChange={onMaxTagsChange}
+        edgeBudget={edgeBudget}
+        onEdgeBudgetChange={onEdgeBudgetChange}
         doorsClosed={doorsClosed}
         onToggleDoors={onToggleDoors}
       />
@@ -169,8 +179,10 @@ export function Hud({
           distance={dist(currentNode, selectedNode)}
           traveling={traveling}
           pinnedEdgeIds={pinnedEdgeIds}
+          visibleEdgeIds={visibleEdgeIds}
           onTogglePin={onTogglePin}
           onHoverEdge={onHoverEdge}
+          onSetEdgeVisible={onSetEdgeVisible}
           onTravel={onTravel}
           onExpand={onExpand}
           onCollapse={onCollapse}
