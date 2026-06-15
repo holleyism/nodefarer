@@ -32,6 +32,7 @@ JSON snapshots later.
 | 3 | **GDS analytics** | ✅ `gds_analyze.py` | 64 GB box | Louvain `communityId` + PageRank centrality. (Multi-resolution / degree-by-type / cluster quotient still to extend.) |
 | 4 | **Text embeddings** | ✅ `embed.py` | 64 GB + GPU box | Work title+abstract → vectors on the RTX 5060 Ti (bge-large default); per-node semantic kNN for offline wormholes. Reads the JSONL directly (no Neo4j dependency); sidecar outputs. See below. |
 | 5 | **Bundle export** | ✅ `export_bundle.py` | 64 GB box | Bounded demo slice → self-contained JSON the app eats: nodes+props, edges with `kind: structural\|semantic`, community assignments + per-community stats, semantic wormholes from the kNN sidecar. See below. |
+| 6 | **Embeddings → Neo4j** *(live path)* | ✅ `load_embeddings.py` | 64 GB box | For the **live** product (Track B): `Work.embedding` + a cosine **vector index** + `SIMILAR_TO` edges from the kNN sidecar. Stages 0–5 bake the portable bundle (Track A); this branch makes the full graph queryable live. See `docs/exploration-design.md`. |
 
 ## Connecting to Neo4j (stages 2+)
 
@@ -137,3 +138,22 @@ communities[]}`. Knobs: `--max-works` / `--max-hops` (slice size), `--authors-
 per-work` (0 to skip authors), `--abstract-chars` (0=omit, -1=full), `--sem-
 threshold` / `--sem-per-node` (wormhole density). The app-wiring step copies the
 bundle into the served dir.
+
+## Stage 6 — embeddings → Neo4j (live path)
+
+Stages 0–5 bake the portable bundle (Track A, zero backend). The **live**
+product (Track B) treats Neo4j as the runtime source, so the vectors + kNN must
+live *in* the graph. Run after `load_neo4j` + `gds_analyze`, once `embed.py` has
+finished. Needs numpy (from `requirements-embed.txt`) + the neo4j driver.
+
+```bash
+ingest/.venv/bin/python ingest/load_embeddings.py
+ingest/.venv/bin/python ingest/load_embeddings.py --no-similar   # vectors only
+```
+
+Does three idempotent things: SETs `Work.embedding` (from the `.npy` + ids),
+creates a cosine **vector index** (`work_embedding`) for live semantic search,
+and MERGEs `SIMILAR_TO` edges from the kNN sidecar (top-K, `--sim-min`) so
+wormholes are a graph traversal. `--drop-similar` for a clean rebuild. See the
+two-track architecture + the `GraphSource`/`View` contract in
+`docs/exploration-design.md`.
