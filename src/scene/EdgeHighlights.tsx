@@ -93,8 +93,8 @@ function EdgeBracket({ edge, graph, pinned }: BracketProps) {
     if (s.side.lengthSq() < 1e-6) s.side.set(0, 1, 0)
     s.side.normalize()
 
-    // Flash bows the arcs wider and brightens them, settling onto the edge.
-    const hw = THREE.MathUtils.clamp(len * 0.055, 1.4, 2.6) * (1 + 0.6 * f)
+    // Rail offset from the edge (held close); flash widens it briefly.
+    const hw = THREE.MathUtils.clamp(len * 0.0275, 0.7, 1.3) * (1 + 0.6 * f)
 
     const writeArc = (out: Float32Array, sign: number) => {
       for (let i = 0; i < ARC_N; i++) {

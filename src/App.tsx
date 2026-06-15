@@ -249,7 +249,11 @@ export default function App() {
       <Canvas
         flat
         camera={{ fov: 60, near: 0.1, far: 4000 }}
-        onPointerMissed={() => {
+        onPointerMissed={(e) => {
+          // Orbit gestures start on empty space — mouse right / Shift+left, or
+          // any touch (which may become a two-finger orbit). Those must NOT
+          // clear the selection; only a plain left-click on the void does.
+          if (e.button !== 0 || e.shiftKey || (e as PointerEvent).pointerType === 'touch') return
           setSelectedId(null)
           clearEdges()
         }}

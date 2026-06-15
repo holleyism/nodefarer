@@ -207,6 +207,30 @@ export function ShipCamera({ currentNode, targetNode, following, followSignal, o
       const [a, b] = [...pointers.values()]
       return Math.hypot(a.x - b.x, a.y - b.y)
     }
+    const centroid = () => {
+      const [a, b] = [...pointers.values()]
+      return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }
+    }
+    // Two-finger centroid, tracked between moves so a two-finger *drag* (not
+    // pinch) orbits while pinch-distance zooms.
+    let lastCentroid: { x: number; y: number } | null = null
+
+    // Orbit (trackball): rotate the stance about the camera's tangent axes —
+    // vertical tips over the node's poles, horizontal carries around its sides.
+    // Both axes ⟂ the outward normal, so you always move (no pole, no spin in
+    // place); the node stays pinned because gaze is stance-relative. Parked-only.
+    // Shared by mouse right/Shift-drag and two-finger touch drag.
+    const applyOrbit = (dx: number, dy: number) => {
+      if (travel.current) return
+      qYaw.setFromAxisAngle(Y_AXIS, look.current.yaw)
+      axis.copy(X_AXIS).applyQuaternion(qYaw).applyQuaternion(stance.current)
+      qDelta.setFromAxisAngle(axis, dy * ORBIT_SENS)
+      stance.current.premultiply(qDelta)
+      axis.copy(NEG_Z).applyQuaternion(qYaw).applyQuaternion(stance.current)
+      qDelta.setFromAxisAngle(axis, -dx * ORBIT_SENS)
+      stance.current.premultiply(qDelta)
+      stance.current.normalize()
+    }
 
     const onDown = (e: PointerEvent) => {
       if (e.pointerType === 'mouse') {
@@ -218,7 +242,10 @@ export function ShipCamera({ currentNode, targetNode, following, followSignal, o
         orbitMode = false
       }
       pointers.set(e.pointerId, { x: e.clientX, y: e.clientY })
-      if (pointers.size === 2) pinch = { startDist: pinchDist(), startFov: camera.fov }
+      if (pointers.size === 2) {
+        pinch = { startDist: pinchDist(), startFov: camera.fov }
+        lastCentroid = centroid()
+      }
     }
     const onMove = (e: PointerEvent) => {
       const prev = pointers.get(e.pointerId)
@@ -228,31 +255,20 @@ export function ShipCamera({ currentNode, targetNode, following, followSignal, o
       prev.x = e.clientX
       prev.y = e.clientY
 
-      if (pinch && pointers.size >= 2) {
-        // Spread fingers → larger distance → narrower FOV → zoom in.
-        setFov(pinch.startFov * (pinch.startDist / (pinchDist() || 1)))
+      // Two fingers: pinch-distance zooms the FOV; centroid drag orbits.
+      if (pointers.size >= 2) {
+        if (pinch) setFov(pinch.startFov * (pinch.startDist / (pinchDist() || 1)))
+        const c = centroid()
+        if (lastCentroid) applyOrbit(c.x - lastCentroid.x, c.y - lastCentroid.y)
+        lastCentroid = c
         return
       }
       // The brief auto-aim turn owns the view; ignore drags during it.
       if (travel.current?.phase === 'turn') return
 
-      // Orbit (trackball): rotate the stance about the camera's tangent axes.
-      // Vertical drag tips you over the node's top/bottom; horizontal drag
-      // carries you around its sides. Both axes are perpendicular to the
-      // outward normal, so you always *move* (never spin in place) and there's
-      // no pole. The node stays pinned because the gaze is stance-relative.
-      // Parked-only.
-      if (orbitMode && pointers.size === 1 && !travel.current) {
-        qYaw.setFromAxisAngle(Y_AXIS, look.current.yaw)
-        // Vertical drag → rotate about the screen-right tangent.
-        axis.copy(X_AXIS).applyQuaternion(qYaw).applyQuaternion(stance.current)
-        qDelta.setFromAxisAngle(axis, dy * ORBIT_SENS)
-        stance.current.premultiply(qDelta)
-        // Horizontal drag → rotate about the screen-forward tangent.
-        axis.copy(NEG_Z).applyQuaternion(qYaw).applyQuaternion(stance.current)
-        qDelta.setFromAxisAngle(axis, -dx * ORBIT_SENS)
-        stance.current.premultiply(qDelta)
-        stance.current.normalize()
+      // Mouse right-button / Shift+left drag orbits (parked-only via applyOrbit).
+      if (orbitMode && pointers.size === 1) {
+        applyOrbit(dx, dy)
         return
       }
 
@@ -267,7 +283,10 @@ export function ShipCamera({ currentNode, targetNode, following, followSignal, o
     }
     const onUp = (e: PointerEvent) => {
       pointers.delete(e.pointerId)
-      if (pointers.size < 2) pinch = null
+      if (pointers.size < 2) {
+        pinch = null
+        lastCentroid = null
+      }
       if (pointers.size === 0) orbitMode = false
     }
     const onWheel = (e: WheelEvent) => {

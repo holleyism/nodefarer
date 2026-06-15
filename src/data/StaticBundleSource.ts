@@ -2,8 +2,12 @@ import type { Bundle, BundleEdge, BundleNode } from './bundle'
 import type { Candidate, EntryMode, ExpandRule, GraphSource, Predicate, View, ViewBounds } from './GraphSource'
 import { Materializer, assembleView, collapseView, filterView } from './viewBuilder'
 
-const DEFAULT_MAX_NODES = 250
 const DEFAULT_EXPAND_LIMIT = 12
+// Entry grows a bounded multi-hop neighborhood with a per-node fan-out cap, so
+// no single node contributes a hairball (the old 1-hop star pulled ~249 spokes).
+const ENTRY_MAX_NODES = 100
+const ENTRY_FANOUT = 10
+const ENTRY_MAX_HOPS = 3
 
 // Serves the GraphSource contract over the whole (already-bounded) bundle held
 // in memory. Topology (entry/expand/neighbors) comes from local adjacency;
@@ -79,18 +83,24 @@ export class StaticBundleSource implements GraphSource {
       anchor = this.defaultAnchor() // overview not supported client-side yet
     }
 
-    const maxNodes = DEFAULT_MAX_NODES
+    // Per-node fan-out BFS: each node contributes only its top-`fanout`
+    // neighbors (by PageRank), so the scene is a multi-hop neighborhood, not a
+    // star. Capped by total nodes and hop depth.
     const ids = new Set<string>([anchor])
     let frontier = [anchor]
-    while (ids.size < maxNodes && frontier.length) {
-      const cand = new Set<string>()
-      for (const f of frontier) for (const { other } of this.neighborsOf(f)) if (!ids.has(other)) cand.add(other)
-      const ranked = [...cand].sort((a, b) => this.pr(b) - this.pr(a))
+    for (let hop = 0; hop < ENTRY_MAX_HOPS && frontier.length && ids.size < ENTRY_MAX_NODES; hop++) {
       const next: string[] = []
-      for (const c of ranked) {
-        if (ids.size >= maxNodes) break
-        ids.add(c)
-        next.push(c)
+      for (const f of frontier) {
+        if (ids.size >= ENTRY_MAX_NODES) break
+        const cand = [...new Set(this.neighborsOf(f).map((n) => n.other))].filter((o) => !ids.has(o))
+        cand.sort((a, b) => this.pr(b) - this.pr(a))
+        for (const c of cand.slice(0, ENTRY_FANOUT)) {
+          if (ids.size >= ENTRY_MAX_NODES) break
+          if (!ids.has(c)) {
+            ids.add(c)
+            next.push(c)
+          }
+        }
       }
       frontier = next
     }
@@ -98,7 +108,7 @@ export class StaticBundleSource implements GraphSource {
       anchorId: anchor,
       corridor: [anchor],
       addedBy: new Map(),
-      bounds: { anchor, maxNodes },
+      bounds: { anchor, maxNodes: ENTRY_MAX_NODES },
     })
   }
 

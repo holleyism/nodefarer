@@ -16,8 +16,9 @@ const FADE_GAP = 3
 // violet with a flow shimmer.
 const INACTIVE = new THREE.Color('#7d9fd4')
 const ACTIVE = new THREE.Color('#9fdcff')
-const INACTIVE_OP = 0.3
-const ACTIVE_OP = 0.6
+// Beams are additive — opacity is the brightness lever. Halved from 0.3/0.6.
+const INACTIVE_OP = 0.15
+const ACTIVE_OP = 0.3
 const RADIUS = 0.3
 
 // Wormhole funnel profile (world units): a thin conduit that flares to a wide

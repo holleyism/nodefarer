@@ -58,7 +58,8 @@ export function BottomBar({
         onToggleDoors={onToggleDoors}
       />
       <Typography variant="caption" sx={{ color: 'text.secondary' }}>
-        Drag — look around · Scroll — zoom · Click node — inspect · Double-click — travel
+        Drag — look · Right-drag / Shift-drag — orbit · Two-finger — orbit + zoom · Scroll — zoom ·
+        Click — inspect · Double-click — travel
       </Typography>
       <Typography
         variant="overline"

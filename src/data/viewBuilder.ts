@@ -113,13 +113,21 @@ export function assembleView(
   edges: GraphEdge[],
   meta: { anchorId: string; corridor: string[]; addedBy: Map<string, string>; bounds: ViewBounds },
 ): View {
+  // Dedupe nodes by id (defensive against data artifacts / repeated ids).
   const nodeById = new Map(nodes.map((n) => [n.id, n]))
-  // Keep only edges whose endpoints are both present.
-  const kept = edges.filter((e) => nodeById.has(e.source) && nodeById.has(e.target))
-  const edgeById = new Map(kept.map((e) => [e.id, e]))
+  const uniqNodes = [...nodeById.values()]
+  // Keep edges with both endpoints present; drop self-loops (e.g. a work that
+  // cites itself in OpenAlex) and duplicate ids — both break React keys.
+  const edgeById = new Map<string, GraphEdge>()
+  for (const e of edges) {
+    if (e.source === e.target) continue
+    if (!nodeById.has(e.source) || !nodeById.has(e.target)) continue
+    if (!edgeById.has(e.id)) edgeById.set(e.id, e)
+  }
+  const kept = [...edgeById.values()]
   const neighbors = new Map<string, string[]>()
   const incident = new Map<string, GraphEdge[]>()
-  for (const n of nodes) {
+  for (const n of uniqNodes) {
     neighbors.set(n.id, [])
     incident.set(n.id, [])
   }
@@ -129,7 +137,7 @@ export function assembleView(
     incident.get(e.source)?.push(e)
     incident.get(e.target)?.push(e)
   }
-  const graph: Graph = { nodes, edges: kept, nodeById, edgeById, neighbors, incident }
+  const graph: Graph = { nodes: uniqNodes, edges: kept, nodeById, edgeById, neighbors, incident }
   return { ...graph, anchorId: meta.anchorId, corridor: meta.corridor, addedBy: meta.addedBy, bounds: meta.bounds }
 }
 
