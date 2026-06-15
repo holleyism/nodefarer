@@ -210,7 +210,15 @@ func (s *GraphService) Entry(ctx context.Context, req models.EntryRequest) (mode
 		anchor = hits[0].ID
 	}
 	if anchor == "" {
-		return models.View{}, fmt.Errorf("entry needs an id or a search query")
+		// No id/query → land on the most central work (a sensible default seed).
+		recs, err := s.run(ctx, "MATCH (w:Work) RETURN w.id AS id ORDER BY coalesce(w.pagerank,0.0) DESC LIMIT 1", nil)
+		if err != nil {
+			return models.View{}, err
+		}
+		if len(recs) == 0 {
+			return models.View{}, fmt.Errorf("graph is empty")
+		}
+		anchor = str(recs[0].AsMap()["id"])
 	}
 
 	// anchor + top (max-1) neighbors by pagerank
