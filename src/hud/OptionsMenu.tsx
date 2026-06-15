@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Box, Slider, Typography } from '@mui/material'
 import type { ViewMode } from '../types'
+import { EDGE_SORT_OPTIONS, type EdgeSortKey } from '../data/edgeSort'
 
 const MONO = '11px/1.7 ui-monospace, SFMono-Regular, Menlo, monospace'
 const MONO_SMALL = '10px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace'
@@ -20,6 +21,8 @@ interface Props {
   onMaxTagsChange: (n: number) => void
   edgeBudget: number
   onEdgeBudgetChange: (n: number) => void
+  edgeSort: EdgeSortKey
+  onEdgeSortChange: (k: EdgeSortKey) => void
   doorsClosed: boolean
   onToggleDoors: () => void
 }
@@ -37,6 +40,8 @@ export function OptionsMenu({
   onMaxTagsChange,
   edgeBudget,
   onEdgeBudgetChange,
+  edgeSort,
+  onEdgeSortChange,
   doorsClosed,
   onToggleDoors,
 }: Props) {
@@ -145,9 +150,39 @@ export function OptionsMenu({
             aria-label="Edges per node"
             sx={{ mt: -0.5 }}
           />
-          <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mt: -0.5, mb: 1.5 }}>
+          <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mt: -0.5, mb: 1 }}>
             Show each node's strongest {edgeBudget} links (wormholes always shown).
           </Typography>
+
+          <Typography sx={{ font: MONO, letterSpacing: 1.5, color: 'text.secondary' }}>
+            SORT / CLIP BY
+          </Typography>
+          <Box sx={{ display: 'flex', gap: 0.5, mt: 0.5, mb: 1.5 }}>
+            {EDGE_SORT_OPTIONS.map((o) => {
+              const active = o.key === edgeSort
+              return (
+                <Box
+                  key={o.key}
+                  component="button"
+                  onClick={() => onEdgeSortChange(o.key)}
+                  sx={{
+                    flex: 1,
+                    font: MONO_SMALL,
+                    letterSpacing: 1,
+                    textTransform: 'uppercase',
+                    padding: '3px 0',
+                    color: active ? '#02030a' : '#aadfff',
+                    background: active ? '#7fd4ff' : 'transparent',
+                    border: '1px solid rgba(127, 212, 255, 0.45)',
+                    borderRadius: '6px',
+                    cursor: 'pointer',
+                  }}
+                >
+                  {o.label}
+                </Box>
+              )
+            })}
+          </Box>
 
           {viewMode === 'proximity' && (
             <>

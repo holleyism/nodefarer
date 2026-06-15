@@ -1,6 +1,7 @@
 import type { Graph, GraphEdge, GraphNode, NodeType } from '../types'
 import type { BundleEdge, BundleNode } from './bundle'
 import type { View, ViewBounds } from './GraphSource'
+import { compareEdges, type EdgeSortKey } from './edgeSort'
 
 // Shared bundle→renderable mapping + View assembly, used by BOTH the static and
 // API sources so the scene behaves identically against either. Community colour
@@ -177,15 +178,12 @@ export function budgetView(
   shown: Set<string>,
   hidden: Set<string>,
   specials: Set<string>,
+  sortKey: EdgeSortKey = 'pagerank',
 ): { display: View; visibleEdgeIds: Set<string> } {
   const topPerNode = new Map<string, Set<string>>()
   for (const n of view.nodes) {
     const structural = (view.incident.get(n.id) ?? []).filter((e) => e.kind !== 'semantic')
-    structural.sort((a, b) => {
-      const oa = a.source === n.id ? a.target : a.source
-      const ob = b.source === n.id ? b.target : b.source
-      return (view.nodeById.get(ob)?.pagerank ?? 0) - (view.nodeById.get(oa)?.pagerank ?? 0)
-    })
+    structural.sort((a, b) => compareEdges(a, b, n.id, view.nodeById, sortKey))
     topPerNode.set(n.id, new Set(structural.slice(0, budget).map((e) => e.id)))
   }
   const passes = (e: GraphEdge) =>

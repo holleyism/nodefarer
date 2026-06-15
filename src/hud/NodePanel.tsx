@@ -13,6 +13,7 @@ import {
   Typography,
 } from '@mui/material'
 import type { Graph, GraphEdge, GraphNode } from '../types'
+import { compareEdges, edgeValueLabel, type EdgeSortKey } from '../data/edgeSort'
 import { HUD_TEXT, MONO, MONO_SMALL, PANEL_SX, SECTION_LABEL_SX } from './hudStyles'
 
 const KEY_CELL_SX = { ...SECTION_LABEL_SX, border: 0, py: 0.4 }
@@ -31,6 +32,7 @@ interface LinkRowProps {
   traveling: boolean
   canTravel: boolean
   visible: boolean
+  valueLabel: string
   onTogglePin: (id: string) => void
   onHoverEdge: (id: string | null) => void
   onSetVisible: (id: string, visible: boolean) => void
@@ -47,6 +49,7 @@ function LinkRow({
   traveling,
   canTravel,
   visible,
+  valueLabel,
   onTogglePin,
   onHoverEdge,
   onSetVisible,
@@ -100,7 +103,9 @@ function LinkRow({
               }}
             />
           ) : (
-            <Typography sx={{ ...SECTION_LABEL_SX, letterSpacing: 1 }}>{edge.label}</Typography>
+            <Typography sx={{ ...SECTION_LABEL_SX, letterSpacing: 1 }}>
+              {valueLabel || edge.label}
+            </Typography>
           )}
           {/* Per-edge visibility toggle — show/hide in the viewport. Filled when
               shown, hollow when budgeted/forced out. */}
@@ -181,6 +186,7 @@ interface Props {
   traveling: boolean
   pinnedEdgeIds: string[]
   visibleEdgeIds: Set<string>
+  edgeSort: EdgeSortKey
   onTogglePin: (id: string) => void
   onHoverEdge: (id: string | null) => void
   onSetEdgeVisible: (id: string, visible: boolean) => void
@@ -199,6 +205,7 @@ export function NodePanel({
   traveling,
   pinnedEdgeIds,
   visibleEdgeIds,
+  edgeSort,
   onTogglePin,
   onHoverEdge,
   onSetEdgeVisible,
@@ -215,17 +222,14 @@ export function NodePanel({
   const structuralAdjacent = !isCurrent && linksToCurrent.some((e) => e.kind === 'structural')
   const wormholeLinked = !isCurrent && linksToCurrent.some((e) => e.kind === 'semantic')
 
-  // Incident edges, wormholes surfaced first, then by neighbor name.
+  // Incident edges ordered by the active sort property (same property the edge
+  // budget clips by), so the list order matches what's shown in the viewport.
   const links = (graph.incident.get(node.id) ?? [])
     .map((edge) => {
       const otherId = edge.source === node.id ? edge.target : edge.source
       return { edge, other: graph.nodeById.get(otherId)! }
     })
-    .sort((a, b) => {
-      const wa = a.edge.kind === 'semantic' ? 0 : 1
-      const wb = b.edge.kind === 'semantic' ? 0 : 1
-      return wa - wb || a.other.name.localeCompare(b.other.name)
-    })
+    .sort((a, b) => compareEdges(a.edge, b.edge, node.id, graph.nodeById, edgeSort))
 
   return (
     <Paper
@@ -324,6 +328,7 @@ export function NodePanel({
               traveling={traveling}
               canTravel={other.id !== currentId}
               visible={visibleEdgeIds.has(edge.id)}
+              valueLabel={edgeValueLabel(edge, node.id, graph.nodeById, edgeSort)}
               onTogglePin={onTogglePin}
               onHoverEdge={onHoverEdge}
               onSetVisible={onSetEdgeVisible}

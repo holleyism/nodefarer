@@ -2,6 +2,7 @@ import { Box, Typography } from '@mui/material'
 import { OptionsMenu } from './OptionsMenu'
 import { PANEL_Z } from './hudStyles'
 import type { ViewMode } from '../types'
+import type { EdgeSortKey } from '../data/edgeSort'
 
 // The dashboard: a near-opaque strip under the window glass. Home for the
 // console button, the controls legend, and the wordmark — and whatever
@@ -15,6 +16,8 @@ interface Props {
   onMaxTagsChange: (n: number) => void
   edgeBudget: number
   onEdgeBudgetChange: (n: number) => void
+  edgeSort: EdgeSortKey
+  onEdgeSortChange: (k: EdgeSortKey) => void
   doorsClosed: boolean
   onToggleDoors: () => void
 }
@@ -26,6 +29,8 @@ export function BottomBar({
   onMaxTagsChange,
   edgeBudget,
   onEdgeBudgetChange,
+  edgeSort,
+  onEdgeSortChange,
   doorsClosed,
   onToggleDoors,
 }: Props) {
@@ -54,6 +59,8 @@ export function BottomBar({
         onMaxTagsChange={onMaxTagsChange}
         edgeBudget={edgeBudget}
         onEdgeBudgetChange={onEdgeBudgetChange}
+        edgeSort={edgeSort}
+        onEdgeSortChange={onEdgeSortChange}
         doorsClosed={doorsClosed}
         onToggleDoors={onToggleDoors}
       />

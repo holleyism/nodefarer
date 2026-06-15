@@ -1,5 +1,6 @@
 import { Box, Chip, LinearProgress, Paper, Stack, Typography } from '@mui/material'
 import type { Graph, GraphNode, ViewMode } from '../types'
+import type { EdgeSortKey } from '../data/edgeSort'
 import { BlastDoors } from './BlastDoors'
 import { BottomBar } from './BottomBar'
 import { HUD_TEXT, MONO_SMALL, PANEL_SX, SECTION_LABEL_SX } from './hudStyles'
@@ -23,6 +24,8 @@ interface Props {
   onMaxTagsChange: (n: number) => void
   edgeBudget: number
   onEdgeBudgetChange: (n: number) => void
+  edgeSort: EdgeSortKey
+  onEdgeSortChange: (k: EdgeSortKey) => void
   following: boolean
   onFollow: () => void
   doorsClosed: boolean
@@ -51,6 +54,8 @@ export function Hud({
   onMaxTagsChange,
   edgeBudget,
   onEdgeBudgetChange,
+  edgeSort,
+  onEdgeSortChange,
   following,
   onFollow,
   doorsClosed,
@@ -166,6 +171,8 @@ export function Hud({
         onMaxTagsChange={onMaxTagsChange}
         edgeBudget={edgeBudget}
         onEdgeBudgetChange={onEdgeBudgetChange}
+        edgeSort={edgeSort}
+        onEdgeSortChange={onEdgeSortChange}
         doorsClosed={doorsClosed}
         onToggleDoors={onToggleDoors}
       />
@@ -180,6 +187,7 @@ export function Hud({
           traveling={traveling}
           pinnedEdgeIds={pinnedEdgeIds}
           visibleEdgeIds={visibleEdgeIds}
+          edgeSort={edgeSort}
           onTogglePin={onTogglePin}
           onHoverEdge={onHoverEdge}
           onSetEdgeVisible={onSetEdgeVisible}

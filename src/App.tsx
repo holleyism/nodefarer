@@ -6,6 +6,7 @@ import { syntheticBundle } from './data/generateGraph'
 import { StaticBundleSource } from './data/StaticBundleSource'
 import { ApiSource } from './data/ApiSource'
 import { budgetView } from './data/viewBuilder'
+import type { EdgeSortKey } from './data/edgeSort'
 import type { GraphSource, View } from './data/GraphSource'
 import type { Bundle } from './data/bundle'
 import { shortestPath } from './data/shortestPath'
@@ -38,6 +39,8 @@ export default function App() {
   // Edge declutter: render at most this many edges per node (mutual top-N by
   // neighbor PageRank), with per-edge user overrides on top.
   const [edgeBudget, setEdgeBudget] = useState(12)
+  // Which property orders the Links list AND drives the edge clip.
+  const [edgeSort, setEdgeSort] = useState<EdgeSortKey>('pagerank')
   const [shownEdgeIds, setShownEdgeIds] = useState<Set<string>>(() => new Set())
   const [hiddenEdgeIds, setHiddenEdgeIds] = useState<Set<string>>(() => new Set())
   // Whether the camera is locked to the course while traveling. Dragging
@@ -185,8 +188,8 @@ export default function App() {
     if (currentId) specials.add(currentId)
     if (selectedId) specials.add(selectedId)
     for (const id of route) specials.add(id)
-    return budgetView(view, edgeBudget, shownEdgeIds, hiddenEdgeIds, specials)
-  }, [view, edgeBudget, shownEdgeIds, hiddenEdgeIds, currentId, selectedId, route])
+    return budgetView(view, edgeBudget, shownEdgeIds, hiddenEdgeIds, specials, edgeSort)
+  }, [view, edgeBudget, edgeSort, shownEdgeIds, hiddenEdgeIds, currentId, selectedId, route])
 
   if (!view || !currentId || !display) {
     return (
@@ -289,6 +292,8 @@ export default function App() {
         onMaxTagsChange={setMaxTags}
         edgeBudget={edgeBudget}
         onEdgeBudgetChange={setEdgeBudget}
+        edgeSort={edgeSort}
+        onEdgeSortChange={setEdgeSort}
         following={following}
         onFollow={handleFollow}
         doorsClosed={doorsClosed}
