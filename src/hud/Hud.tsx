@@ -30,6 +30,8 @@ interface Props {
   onHoverEdge: (id: string | null) => void
   onSelect: (id: string) => void
   onTravel: (id: string) => void
+  onExpand: (id: string) => void
+  onCollapse: (id: string) => void
   onClosePanel: () => void
 }
 
@@ -52,6 +54,8 @@ export function Hud({
   onHoverEdge,
   onSelect,
   onTravel,
+  onExpand,
+  onCollapse,
   onClosePanel,
 }: Props) {
   const traveling = destination !== null
@@ -168,6 +172,8 @@ export function Hud({
           onTogglePin={onTogglePin}
           onHoverEdge={onHoverEdge}
           onTravel={onTravel}
+          onExpand={onExpand}
+          onCollapse={onCollapse}
           onClose={onClosePanel}
         />
       )}

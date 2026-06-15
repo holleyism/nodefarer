@@ -5,10 +5,11 @@ import type { Graph, GraphNode, NodeType } from '../types'
 import { glowTexture } from './glow'
 
 export const NODE_RADIUS: Record<NodeType, number> = {
-  star: 2.6,
-  gate: 2.0,
-  outpost: 1.6,
-  relay: 1.4,
+  work: 2.0,
+  concept: 1.6,
+  venue: 1.5,
+  institution: 1.4,
+  author: 1.2,
 }
 
 interface NodeMeshProps {

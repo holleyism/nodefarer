@@ -156,6 +156,8 @@ interface Props {
   onTogglePin: (id: string) => void
   onHoverEdge: (id: string | null) => void
   onTravel: (id: string) => void
+  onExpand: (id: string) => void
+  onCollapse: (id: string) => void
   onClose: () => void
 }
 
@@ -170,6 +172,8 @@ export function NodePanel({
   onTogglePin,
   onHoverEdge,
   onTravel,
+  onExpand,
+  onCollapse,
   onClose,
 }: Props) {
   // Relationship to the current node: a structural edge is "adjacent"; a
@@ -251,6 +255,29 @@ export function NodePanel({
           ))}
         </TableBody>
       </Table>
+
+      <Stack direction="row" spacing={1} sx={{ mt: 1 }}>
+        <Button
+          fullWidth
+          size="small"
+          variant="outlined"
+          disabled={traveling}
+          onClick={() => onExpand(node.id)}
+          sx={{ font: MONO_SMALL, letterSpacing: 1.5 }}
+        >
+          Expand ▸
+        </Button>
+        <Button
+          fullWidth
+          size="small"
+          variant="outlined"
+          disabled={traveling}
+          onClick={() => onCollapse(node.id)}
+          sx={{ font: MONO_SMALL, letterSpacing: 1.5 }}
+        >
+          ◂ Collapse
+        </Button>
+      </Stack>
 
       {links.length > 0 && (
         <>

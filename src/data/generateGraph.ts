@@ -1,4 +1,4 @@
-import type { Graph, GraphEdge, GraphNode, NodeType } from '../types'
+import type { Bundle, BundleEdge, BundleNode } from './bundle'
 
 // Deterministic PRNG so the same seed always produces the same universe.
 function mulberry32(seed: number) {
@@ -12,146 +12,116 @@ function mulberry32(seed: number) {
   }
 }
 
-const CLUSTER_COLORS = [
-  '#66b8ff', '#ffb86b', '#7dffa8', '#ff7de9', '#fff37d',
-  '#9d8bff', '#6bffe0', '#ff8a8a', '#b8ff6b', '#7da9ff',
+const FIELDS = [
+  'Neuroscience', 'Computer Science', 'Physics', 'Mathematics', 'Biology',
+  'Chemistry', 'Materials Science', 'Linguistics',
 ]
+const STEMS = ['Vela', 'Cygnus', 'Altair', 'Rigel', 'Lyra', 'Orion', 'Draco', 'Mira']
 
-const STEMS = [
-  'Vela', 'Cygnus', 'Altair', 'Rigel', 'Lyra',
-  'Orion', 'Draco', 'Mira', 'Atlas', 'Helios',
-]
+const COMMUNITIES = 8
+const WORKS_PER = 18
 
-const NUMERALS = [
-  'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X', 'XI',
-  'XII', 'XIII', 'XIV', 'XV', 'XVI', 'XVII', 'XVIII', 'XIX', 'XX', 'XXI',
-]
-
-const SPECTRAL = ['O5V', 'B2IV', 'A0V', 'F5V', 'G2V', 'K1III', 'M4V', 'D (white dwarf)']
-const HAZARD = ['low', 'low', 'moderate', 'moderate', 'severe']
-
-const CLUSTERS = 10
-const NODES_PER_CLUSTER = 20
-
-export function generateGraph(seed = 7): Graph {
+// A synthetic OpenAlex-shaped Bundle — the offline fallback when no real
+// bundle.json is present, so the app (and the smoke test) always run. Same
+// shape ingest/export_bundle.py emits, so StaticBundleSource consumes it
+// identically to live data.
+export function syntheticBundle(seed = 7): Bundle {
   const rand = mulberry32(seed)
-  const nodes: GraphNode[] = []
-  // Raw source/target pairs; promoted to the full GraphEdge shape after dedup.
-  const edges: Array<{ source: string; target: string }> = []
+  const nodes: BundleNode[] = []
+  const edges: BundleEdge[] = []
+  const hubs: string[] = []
 
-  for (let c = 0; c < CLUSTERS; c++) {
+  // shared concept nodes
+  const concepts = ['Memory', 'Attention', 'Topology', 'Optimization', 'Dynamics']
+  concepts.forEach((name, i) =>
+    nodes.push({ id: `C${i}`, type: 'concept', name, level: 1 }),
+  )
+
+  for (let c = 0; c < COMMUNITIES; c++) {
     const stem = STEMS[c]
-    for (let i = 0; i < NODES_PER_CLUSTER; i++) {
-      const isHub = i === 0
-      const type: NodeType = isHub ? 'star' : rand() < 0.5 ? 'outpost' : 'relay'
+    const field = FIELDS[c]
+    const hubId = `W${c}-0`
+    hubs.push(hubId)
+    for (let i = 0; i < WORKS_PER; i++) {
+      const id = `W${c}-${i}`
       nodes.push({
-        id: `${c}-${i}`,
-        name: isHub ? `${stem} Prime` : `${stem} ${NUMERALS[i - 1]}`,
-        type,
-        cluster: c,
-        color: CLUSTER_COLORS[c],
-        properties: {
-          'Spectral class': SPECTRAL[Math.floor(rand() * SPECTRAL.length)],
-          'Mass (M☉)': Math.round((0.2 + rand() * 4) * 100) / 100,
-          'Luminosity (L☉)': Math.round(rand() * 500) / 100,
-          Surveyed: 2280 + Math.floor(rand() * 80),
-          Hazard: HAZARD[Math.floor(rand() * HAZARD.length)],
-        },
+        id,
+        type: 'work',
+        name: i === 0 ? `${stem} foundational work` : `${stem} study ${i}`,
+        community: c,
+        pagerank: i === 0 ? 1 + rand() : 0.1 + rand() * 0.4,
+        year: 1980 + Math.floor(rand() * 44),
+        cited_by: Math.floor(rand() * (i === 0 ? 9000 : 400)),
+        field,
       })
+      // intra-community citations, hub-heavy
+      if (i > 0) {
+        const target = rand() < 0.55 ? 0 : Math.floor(rand() * i)
+        edges.push(cite(id, `W${c}-${target}`))
+      }
+      // a couple of concept tags
+      if (rand() < 0.5) {
+        const ci = Math.floor(rand() * concepts.length)
+        edges.push({
+          id: `HC:${id}->C${ci}`,
+          source: id,
+          target: `C${ci}`,
+          kind: 'structural',
+          rel: 'concept',
+          label: 'concept',
+          props: { score: Math.round(rand() * 1000) / 1000 },
+        })
+      }
     }
-
-    // Intra-cluster wiring: every node reaches the cluster, hub-heavy.
-    for (let i = 1; i < NODES_PER_CLUSTER; i++) {
-      const target = rand() < 0.55 ? 0 : Math.floor(rand() * i)
-      edges.push({ source: `${c}-${i}`, target: `${c}-${target}` })
-    }
-    // A few extra intra-cluster links for cycles.
-    const extras = Math.floor(NODES_PER_CLUSTER * 0.3)
-    for (let k = 0; k < extras; k++) {
-      const a = Math.floor(rand() * NODES_PER_CLUSTER)
-      const b = Math.floor(rand() * NODES_PER_CLUSTER)
-      if (a !== b) edges.push({ source: `${c}-${a}`, target: `${c}-${b}` })
-    }
   }
 
-  // Bridges: guarantee inter-cluster connectivity, then add a few random ones.
-  const bridge = (ca: number, cb: number) => {
-    const a = `${ca}-${Math.floor(rand() * NODES_PER_CLUSTER)}`
-    const b = `${cb}-${Math.floor(rand() * NODES_PER_CLUSTER)}`
-    edges.push({ source: a, target: b })
-    return [a, b]
-  }
-  const gateIds = new Set<string>()
-  for (let c = 1; c < CLUSTERS; c++) {
-    bridge(c, Math.floor(rand() * c)).forEach((id) => gateIds.add(id))
-  }
-  for (let k = 0; k < 5; k++) {
-    const ca = Math.floor(rand() * CLUSTERS)
-    const cb = Math.floor(rand() * CLUSTERS)
-    if (ca !== cb) bridge(ca, cb).forEach((id) => gateIds.add(id))
+  // inter-community bridge citations
+  for (let c = 1; c < COMMUNITIES; c++) {
+    const a = `W${c}-${Math.floor(rand() * WORKS_PER)}`
+    const b = `W${Math.floor(rand() * c)}-${Math.floor(rand() * WORKS_PER)}`
+    edges.push(cite(a, b))
   }
 
-  const nodeById = new Map(nodes.map((n) => [n.id, n]))
-  for (const id of gateIds) {
-    const n = nodeById.get(id)!
-    if (n.type !== 'star') n.type = 'gate'
-  }
-
-  // Dedupe edges (unordered pairs), then promote each to the generic edge shape.
-  // A link crossing cluster boundaries is a "trunk route"; within a cluster a
-  // "jump lane". Layout-independent props only (distance is computed live).
-  const seen = new Set<string>()
-  const edgesOut: GraphEdge[] = []
-  for (const e of edges) {
-    if (e.source === e.target) continue
-    const [lo, hi] = e.source < e.target ? [e.source, e.target] : [e.target, e.source]
-    const key = `${lo}~${hi}`
-    if (seen.has(key)) continue
-    seen.add(key)
-    const trunk = lo.split('-')[0] !== hi.split('-')[0]
-    edgesOut.push({
-      id: key,
-      source: e.source,
-      target: e.target,
-      kind: 'structural',
-      label: trunk ? 'trunk route' : 'jump lane',
-      props: { Class: trunk ? 'trunk' : 'local' },
-    })
-  }
-
-  // Semantic wormholes: inferred (embedding-kNN) links between distant cluster
-  // hubs with no structural path. Stand-in for the real bundle's semantic edges
-  // — the demo "why a graph this far apart is actually related" moment.
-  const WORMHOLES: Array<[string, string, number, string]> = [
-    ['0-0', '7-0', 0.91, 'resonant memory geometry'],
-    ['3-0', '9-0', 0.88, 'shared attractor topology'],
-    ['1-0', '6-0', 0.86, 'convergent field harmonics'],
+  // semantic wormholes between distant community hubs
+  const worm: Array<[number, number, number]> = [
+    [0, 5, 0.91],
+    [2, 7, 0.88],
+    [1, 4, 0.86],
   ]
-  for (const [s, t, similarity, basis] of WORMHOLES) {
-    if (!nodeById.has(s) || !nodeById.has(t)) continue
-    edgesOut.push({
-      id: `wh~${s}~${t}`,
-      source: s,
-      target: t,
+  for (const [a, b, sim] of worm) {
+    edges.push({
+      id: `SEM:${hubs[a]}~${hubs[b]}`,
+      source: hubs[a],
+      target: hubs[b],
       kind: 'semantic',
+      rel: 'semantic',
       label: 'wormhole',
-      props: { Similarity: similarity, Basis: basis },
+      props: { similarity: sim },
     })
   }
 
-  const edgeById = new Map(edgesOut.map((e) => [e.id, e]))
-  const neighbors = new Map<string, string[]>()
-  const incident = new Map<string, GraphEdge[]>()
-  for (const n of nodes) {
-    neighbors.set(n.id, [])
-    incident.set(n.id, [])
-  }
-  for (const e of edgesOut) {
-    neighbors.get(e.source)!.push(e.target)
-    neighbors.get(e.target)!.push(e.source)
-    incident.get(e.source)!.push(e)
-    incident.get(e.target)!.push(e)
-  }
+  const communities = Array.from({ length: COMMUNITIES }, (_, c) => ({
+    id: c,
+    size: WORKS_PER,
+    representative: { id: `W${c}-0`, name: `${STEMS[c]} foundational work` },
+    dominantConcept: concepts[c % concepts.length],
+  }))
 
-  return { nodes, edges: edgesOut, nodeById, edgeById, neighbors, incident }
+  return {
+    meta: { seeds: [hubs[0]], communities: COMMUNITIES, embeddingModel: null },
+    nodes,
+    edges,
+    communities,
+  }
+}
+
+function cite(source: string, target: string): BundleEdge {
+  return {
+    id: `CITES:${source}->${target}`,
+    source,
+    target,
+    kind: 'structural',
+    rel: 'cites',
+    label: 'cites',
+  }
 }
