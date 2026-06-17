@@ -1,10 +1,13 @@
-import { Box, Chip, LinearProgress, Paper, Stack, Typography } from '@mui/material'
+import { Box, LinearProgress, Paper, Stack, Typography } from '@mui/material'
 import type { Graph, GraphNode, ViewMode } from '../types'
 import type { EdgeSortKey } from '../data/edgeSort'
 import { BlastDoors } from './BlastDoors'
 import { BottomBar } from './BottomBar'
-import { HUD_TEXT, MONO_SMALL, PANEL_SX, SECTION_LABEL_SX } from './hudStyles'
+import { ConsoleRail, type RailItem } from './ConsoleRail'
+import { CurrentNodeContent } from './CurrentNodeContent'
+import { PANEL_SX } from './hudStyles'
 import { NodePanel } from './NodePanel'
+import { OptionsMenu } from './OptionsMenu'
 import { Radar } from './Radar'
 import { ViewportFrame } from './ViewportFrame'
 
@@ -87,40 +90,54 @@ export function Hud({
   )
   const neighborCount = radarTargets.length
 
+  // Left activation rail — current node, then the ship console.
+  const railItems: RailItem[] = [
+    {
+      id: 'current',
+      icon: '⬡',
+      title: 'Current node',
+      width: 240,
+      content: (
+        <CurrentNodeContent
+          node={currentNode}
+          neighborCount={neighborCount}
+          onInspect={() => onSelect(currentNode.id)}
+        />
+      ),
+    },
+    {
+      id: 'console',
+      icon: '▤',
+      title: 'Ship console',
+      width: 280,
+      content: (
+        <OptionsMenu
+          viewMode={viewMode}
+          onViewModeChange={onViewModeChange}
+          maxTags={maxTags}
+          onMaxTagsChange={onMaxTagsChange}
+          edgeBudget={edgeBudget}
+          onEdgeBudgetChange={onEdgeBudgetChange}
+          edgeSort={edgeSort}
+          onEdgeSortChange={onEdgeSortChange}
+          showEdges={showEdges}
+          onToggleEdges={onToggleEdges}
+          showWormholes={showWormholes}
+          onToggleWormholes={onToggleWormholes}
+          doorsClosed={doorsClosed}
+          onToggleDoors={onToggleDoors}
+        />
+      ),
+    },
+  ]
+
   return (
     <>
       <BlastDoors closed={doorsClosed} label="standby — layout hold" />
       <ViewportFrame />
 
-      {/* Current node — top left */}
-      <Paper
-        elevation={4}
-        onClick={() => onSelect(currentNode.id)}
-        sx={{
-          position: 'absolute',
-          top: 28,
-          left: 28,
-          px: 2,
-          py: 1,
-          cursor: 'pointer',
-          ...PANEL_SX,
-          '&:hover': { borderColor: 'primary.main' },
-        }}
-      >
-        <Typography sx={SECTION_LABEL_SX}>Current node</Typography>
-        <Stack direction="row" spacing={1} alignItems="center">
-          <Box sx={{ width: 10, height: 10, borderRadius: '50%', bgcolor: currentNode.color }} />
-          <Typography variant="h6" sx={{ color: HUD_TEXT }}>
-            {currentNode.name}
-          </Typography>
-          <Chip
-            label={`${neighborCount} links`}
-            size="small"
-            variant="outlined"
-            sx={{ font: MONO_SMALL, letterSpacing: 1 }}
-          />
-        </Stack>
-      </Paper>
+      {/* Left activation rail — current node + ship console */}
+      <ConsoleRail items={railItems} />
 
       {/* Travel banner — top center */}
       {traveling && (
@@ -171,23 +188,8 @@ export function Hud({
       {/* Radar — bottom right, above the dashboard */}
       <Radar label="adjacent" targets={radarTargets} />
 
-      {/* Dashboard — console, controls legend, wordmark */}
-      <BottomBar
-        viewMode={viewMode}
-        onViewModeChange={onViewModeChange}
-        maxTags={maxTags}
-        onMaxTagsChange={onMaxTagsChange}
-        edgeBudget={edgeBudget}
-        onEdgeBudgetChange={onEdgeBudgetChange}
-        edgeSort={edgeSort}
-        onEdgeSortChange={onEdgeSortChange}
-        showEdges={showEdges}
-        onToggleEdges={onToggleEdges}
-        showWormholes={showWormholes}
-        onToggleWormholes={onToggleWormholes}
-        doorsClosed={doorsClosed}
-        onToggleDoors={onToggleDoors}
-      />
+      {/* Dashboard — controls legend + wordmark */}
+      <BottomBar />
 
       {selectedNode && (
         <NodePanel

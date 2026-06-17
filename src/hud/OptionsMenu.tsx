@@ -1,4 +1,3 @@
-import { useState } from 'react'
 import { Box, Slider, Typography } from '@mui/material'
 import type { ViewMode } from '../types'
 import { EDGE_SORT_OPTIONS, type EdgeSortKey } from '../data/edgeSort'
@@ -31,12 +30,8 @@ interface Props {
   onToggleDoors: () => void
 }
 
-// Ship console: lives in the dashboard bar; the panel deploys upward from
-// the button with a slight overshoot and CRT flicker while a scanline
-// sweeps down it once. The view-mode selector decides how the viewport picks
-// highlights; each mode owns the controls rendered beneath it.
-type PanelState = 'closed' | 'open' | 'closing'
-
+// The ship-console controls. Rendered as the contents of a DeployPanel (the
+// rail owns the open/close animation); this component is just the instruments.
 export function OptionsMenu({
   viewMode,
   onViewModeChange,
@@ -53,251 +48,171 @@ export function OptionsMenu({
   doorsClosed,
   onToggleDoors,
 }: Props) {
-  // 'closing' keeps the panel mounted while the retract animation plays.
-  const [panel, setPanel] = useState<PanelState>('closed')
-  const open = panel === 'open'
-  const toggle = () => setPanel(open ? 'closing' : 'open')
   return (
-    <Box sx={{ position: 'relative' }}>
-      {panel !== 'closed' && (
-        <Box
-          onAnimationEnd={(e) => {
-            if (e.animationName === 'console-retract') setPanel('closed')
-          }}
-          sx={{
-            position: 'absolute',
-            bottom: 'calc(100% + 18px)',
-            left: 0,
-            width: 280,
-            p: 2,
-            overflow: 'hidden',
-            bgcolor: 'rgba(4, 14, 28, 0.92)',
-            border: '1px solid rgba(127, 212, 255, 0.35)',
-            borderRadius: '10px',
-            backdropFilter: 'blur(6px)',
-            transformOrigin: 'bottom left',
-            animation:
-              panel === 'closing'
-                ? 'console-retract 170ms cubic-bezier(0.5, 0, 0.75, 0.35) forwards'
-                : 'console-deploy 240ms cubic-bezier(0.2, 0.9, 0.25, 1.15)',
-            '@keyframes console-deploy': {
-              '0%': { transform: 'scale(0.5, 0.15)', opacity: 0 },
-              '55%': { transform: 'scale(1.01, 1.04)', opacity: 0.75 },
-              '70%': { opacity: 0.5 },
-              '100%': { transform: 'scale(1, 1)', opacity: 1 },
-            },
-            '@keyframes console-retract': {
-              '0%': { transform: 'scale(1, 1)', opacity: 1 },
-              '30%': { opacity: 0.55 },
-              '45%': { opacity: 0.85 },
-              '100%': { transform: 'scale(0.5, 0.12)', opacity: 0 },
-            },
-            '&::after': {
-              content: '""',
-              position: 'absolute',
-              left: 0,
-              right: 0,
-              top: 0,
-              height: '2px',
-              background:
-                'linear-gradient(90deg, transparent, rgba(127, 212, 255, 0.8), transparent)',
-              animation: 'console-scan 420ms linear 80ms 1 forwards',
-              opacity: 0,
-            },
-            '@keyframes console-scan': {
-              '0%': { top: 0, opacity: 1 },
-              '100%': { top: '100%', opacity: 0 },
-            },
-          }}
-        >
-          <Typography sx={{ font: MONO, letterSpacing: 3, color: '#aadfff', mb: 1.5 }}>
-            SHIP CONSOLE
-          </Typography>
+    <>
+      <Typography sx={{ font: MONO, letterSpacing: 3, color: '#aadfff', mb: 1.5 }}>
+        SHIP CONSOLE
+      </Typography>
 
-          <Typography sx={{ font: MONO, letterSpacing: 1.5, color: 'text.secondary' }}>
-            VIEW MODE
-          </Typography>
-          <Box sx={{ display: 'flex', gap: 0.5, mt: 0.5, mb: 1.5 }}>
-            {MODES.map((m) => {
-              const active = m.id === viewMode
-              return (
-                <Box
-                  key={m.id}
-                  component="button"
-                  disabled={m.disabled}
-                  title={m.disabled ? 'Coming soon' : undefined}
-                  onClick={() => onViewModeChange(m.id)}
-                  sx={{
-                    flex: 1,
-                    font: MONO_SMALL,
-                    letterSpacing: 1.5,
-                    textTransform: 'uppercase',
-                    padding: '3px 0',
-                    color: active ? '#02030a' : m.disabled ? 'rgba(170, 223, 255, 0.3)' : '#aadfff',
-                    background: active ? '#7fd4ff' : 'transparent',
-                    border: '1px solid rgba(127, 212, 255, 0.45)',
-                    borderRadius: '6px',
-                    cursor: m.disabled ? 'default' : 'pointer',
-                  }}
-                >
-                  {m.label}
-                </Box>
-              )
-            })}
-          </Box>
+      <Typography sx={{ font: MONO, letterSpacing: 1.5, color: 'text.secondary' }}>
+        VIEW MODE
+      </Typography>
+      <Box sx={{ display: 'flex', gap: 0.5, mt: 0.5, mb: 1.5 }}>
+        {MODES.map((m) => {
+          const active = m.id === viewMode
+          return (
+            <Box
+              key={m.id}
+              component="button"
+              disabled={m.disabled}
+              title={m.disabled ? 'Coming soon' : undefined}
+              onClick={() => onViewModeChange(m.id)}
+              sx={{
+                flex: 1,
+                font: MONO_SMALL,
+                letterSpacing: 1.5,
+                textTransform: 'uppercase',
+                padding: '3px 0',
+                color: active ? '#02030a' : m.disabled ? 'rgba(170, 223, 255, 0.3)' : '#aadfff',
+                background: active ? '#7fd4ff' : 'transparent',
+                border: '1px solid rgba(127, 212, 255, 0.45)',
+                borderRadius: '6px',
+                cursor: m.disabled ? 'default' : 'pointer',
+              }}
+            >
+              {m.label}
+            </Box>
+          )
+        })}
+      </Box>
 
-          <Typography sx={{ font: MONO, letterSpacing: 1.5, color: 'text.secondary' }}>
-            EDGES / NODE — {edgeBudget}
-          </Typography>
-          <Slider
-            size="small"
-            min={5}
-            max={50}
-            value={edgeBudget}
-            onChange={(_, v) => onEdgeBudgetChange(v as number)}
-            aria-label="Edges per node"
-            sx={{ mt: -0.5 }}
-          />
-          <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mt: -0.5, mb: 1 }}>
-            Show each node's strongest {edgeBudget} links (wormholes always shown).
-          </Typography>
+      <Typography sx={{ font: MONO, letterSpacing: 1.5, color: 'text.secondary' }}>
+        EDGES / NODE — {edgeBudget}
+      </Typography>
+      <Slider
+        size="small"
+        min={5}
+        max={50}
+        value={edgeBudget}
+        onChange={(_, v) => onEdgeBudgetChange(v as number)}
+        aria-label="Edges per node"
+        sx={{ mt: -0.5 }}
+      />
+      <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mt: -0.5, mb: 1 }}>
+        Show each node's strongest {edgeBudget} links (wormholes always shown).
+      </Typography>
 
-          <Typography sx={{ font: MONO, letterSpacing: 1.5, color: 'text.secondary' }}>
-            SORT / CLIP BY
-          </Typography>
-          <Box sx={{ display: 'flex', gap: 0.5, mt: 0.5, mb: 1.5 }}>
-            {EDGE_SORT_OPTIONS.map((o) => {
-              const active = o.key === edgeSort
-              return (
-                <Box
-                  key={o.key}
-                  component="button"
-                  onClick={() => onEdgeSortChange(o.key)}
-                  sx={{
-                    flex: 1,
-                    font: MONO_SMALL,
-                    letterSpacing: 1,
-                    textTransform: 'uppercase',
-                    padding: '3px 0',
-                    color: active ? '#02030a' : '#aadfff',
-                    background: active ? '#7fd4ff' : 'transparent',
-                    border: '1px solid rgba(127, 212, 255, 0.45)',
-                    borderRadius: '6px',
-                    cursor: 'pointer',
-                  }}
-                >
-                  {o.label}
-                </Box>
-              )
-            })}
-          </Box>
+      <Typography sx={{ font: MONO, letterSpacing: 1.5, color: 'text.secondary' }}>
+        SORT / CLIP BY
+      </Typography>
+      <Box sx={{ display: 'flex', gap: 0.5, mt: 0.5, mb: 1.5 }}>
+        {EDGE_SORT_OPTIONS.map((o) => {
+          const active = o.key === edgeSort
+          return (
+            <Box
+              key={o.key}
+              component="button"
+              onClick={() => onEdgeSortChange(o.key)}
+              sx={{
+                flex: 1,
+                font: MONO_SMALL,
+                letterSpacing: 1,
+                textTransform: 'uppercase',
+                padding: '3px 0',
+                color: active ? '#02030a' : '#aadfff',
+                background: active ? '#7fd4ff' : 'transparent',
+                border: '1px solid rgba(127, 212, 255, 0.45)',
+                borderRadius: '6px',
+                cursor: 'pointer',
+              }}
+            >
+              {o.label}
+            </Box>
+          )
+        })}
+      </Box>
 
-          <Typography sx={{ font: MONO, letterSpacing: 1.5, color: 'text.secondary' }}>
-            VISIBILITY
-          </Typography>
-          <Box sx={{ display: 'flex', gap: 0.5, mt: 0.5, mb: 0.25 }}>
-            {[
-              { label: 'edges', on: showEdges, toggle: onToggleEdges },
-              { label: 'wormholes', on: showWormholes, toggle: onToggleWormholes },
-            ].map((t) => (
-              <Box
-                key={t.label}
-                component="button"
-                onClick={t.toggle}
-                sx={{
-                  flex: 1,
-                  font: MONO_SMALL,
-                  letterSpacing: 1.5,
-                  textTransform: 'uppercase',
-                  padding: '4px 0',
-                  color: t.on ? '#02030a' : '#aadfff',
-                  background: t.on ? '#7fd4ff' : 'transparent',
-                  border: '1px solid rgba(127, 212, 255, 0.45)',
-                  borderRadius: '6px',
-                  cursor: 'pointer',
-                }}
-              >
-                {t.on ? '◉' : '○'} {t.label}
-              </Box>
-            ))}
-          </Box>
-          <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mb: 1.5 }}>
-            The travel lane stays lit even with edges hidden.
-          </Typography>
-
-          {viewMode === 'proximity' && (
-            <>
-              <Typography sx={{ font: MONO, letterSpacing: 1.5, color: 'text.secondary' }}>
-                TARGET LOCKS — {maxTags}
-              </Typography>
-              <Slider
-                size="small"
-                min={1}
-                max={50}
-                value={maxTags}
-                onChange={(_, v) => onMaxTagsChange(v as number)}
-                aria-label="Target locks"
-                sx={{ mt: -0.5 }}
-              />
-              <Typography
-                variant="caption"
-                sx={{ color: 'text.secondary', display: 'block', mt: -0.5 }}
-              >
-                Reticles lock the closest {maxTags} bodies on the glass.
-              </Typography>
-            </>
-          )}
-
-          {viewMode === 'adjacent' && (
-            <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block' }}>
-              Reticles lock only nodes linked to the current node.
-            </Typography>
-          )}
-
-          <Typography sx={{ font: MONO, letterSpacing: 1.5, color: 'text.secondary', mt: 1.5 }}>
-            BLAST DOORS
-          </Typography>
+      <Typography sx={{ font: MONO, letterSpacing: 1.5, color: 'text.secondary' }}>
+        VISIBILITY
+      </Typography>
+      <Box sx={{ display: 'flex', gap: 0.5, mt: 0.5, mb: 0.25 }}>
+        {[
+          { label: 'edges', on: showEdges, toggle: onToggleEdges },
+          { label: 'wormholes', on: showWormholes, toggle: onToggleWormholes },
+        ].map((t) => (
           <Box
+            key={t.label}
             component="button"
-            onClick={onToggleDoors}
+            onClick={t.toggle}
             sx={{
-              width: '100%',
-              mt: 0.5,
+              flex: 1,
               font: MONO_SMALL,
               letterSpacing: 1.5,
               textTransform: 'uppercase',
               padding: '4px 0',
-              color: doorsClosed ? '#02030a' : '#aadfff',
-              background: doorsClosed ? '#7fd4ff' : 'transparent',
+              color: t.on ? '#02030a' : '#aadfff',
+              background: t.on ? '#7fd4ff' : 'transparent',
               border: '1px solid rgba(127, 212, 255, 0.45)',
               borderRadius: '6px',
               cursor: 'pointer',
             }}
           >
-            {doorsClosed ? '▲ open doors' : '▼ close doors'}
+            {t.on ? '◉' : '○'} {t.label}
           </Box>
-        </Box>
+        ))}
+      </Box>
+      <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mb: 1.5 }}>
+        The travel lane stays lit even with edges hidden.
+      </Typography>
+
+      {viewMode === 'proximity' && (
+        <>
+          <Typography sx={{ font: MONO, letterSpacing: 1.5, color: 'text.secondary' }}>
+            TARGET LOCKS — {maxTags}
+          </Typography>
+          <Slider
+            size="small"
+            min={1}
+            max={50}
+            value={maxTags}
+            onChange={(_, v) => onMaxTagsChange(v as number)}
+            aria-label="Target locks"
+            sx={{ mt: -0.5 }}
+          />
+          <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mt: -0.5 }}>
+            Reticles lock the closest {maxTags} bodies on the glass.
+          </Typography>
+        </>
       )}
 
+      {viewMode === 'adjacent' && (
+        <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block' }}>
+          Reticles lock only nodes linked to the current node.
+        </Typography>
+      )}
+
+      <Typography sx={{ font: MONO, letterSpacing: 1.5, color: 'text.secondary', mt: 1.5 }}>
+        BLAST DOORS
+      </Typography>
       <Box
         component="button"
-        onClick={toggle}
+        onClick={onToggleDoors}
         sx={{
-          font: MONO,
-          letterSpacing: 2,
+          width: '100%',
+          mt: 0.5,
+          font: MONO_SMALL,
+          letterSpacing: 1.5,
           textTransform: 'uppercase',
-          color: '#aadfff',
-          background: 'rgba(4, 14, 28, 0.72)',
+          padding: '4px 0',
+          color: doorsClosed ? '#02030a' : '#aadfff',
+          background: doorsClosed ? '#7fd4ff' : 'transparent',
           border: '1px solid rgba(127, 212, 255, 0.45)',
-          borderRadius: 999,
-          padding: '4px 14px',
+          borderRadius: '6px',
           cursor: 'pointer',
-          backdropFilter: 'blur(2px)',
-          '&:hover': { borderColor: '#7fd4ff' },
         }}
       >
-        {open ? '▾ console' : '▴ console'}
+        {doorsClosed ? '▲ open doors' : '▼ close doors'}
       </Box>
-    </Box>
+    </>
   )
 }
