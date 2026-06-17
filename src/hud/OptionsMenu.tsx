@@ -23,6 +23,10 @@ interface Props {
   onEdgeBudgetChange: (n: number) => void
   edgeSort: EdgeSortKey
   onEdgeSortChange: (k: EdgeSortKey) => void
+  showEdges: boolean
+  onToggleEdges: () => void
+  showWormholes: boolean
+  onToggleWormholes: () => void
   doorsClosed: boolean
   onToggleDoors: () => void
 }
@@ -42,6 +46,10 @@ export function OptionsMenu({
   onEdgeBudgetChange,
   edgeSort,
   onEdgeSortChange,
+  showEdges,
+  onToggleEdges,
+  showWormholes,
+  onToggleWormholes,
   doorsClosed,
   onToggleDoors,
 }: Props) {
@@ -183,6 +191,39 @@ export function OptionsMenu({
               )
             })}
           </Box>
+
+          <Typography sx={{ font: MONO, letterSpacing: 1.5, color: 'text.secondary' }}>
+            VISIBILITY
+          </Typography>
+          <Box sx={{ display: 'flex', gap: 0.5, mt: 0.5, mb: 0.25 }}>
+            {[
+              { label: 'edges', on: showEdges, toggle: onToggleEdges },
+              { label: 'wormholes', on: showWormholes, toggle: onToggleWormholes },
+            ].map((t) => (
+              <Box
+                key={t.label}
+                component="button"
+                onClick={t.toggle}
+                sx={{
+                  flex: 1,
+                  font: MONO_SMALL,
+                  letterSpacing: 1.5,
+                  textTransform: 'uppercase',
+                  padding: '4px 0',
+                  color: t.on ? '#02030a' : '#aadfff',
+                  background: t.on ? '#7fd4ff' : 'transparent',
+                  border: '1px solid rgba(127, 212, 255, 0.45)',
+                  borderRadius: '6px',
+                  cursor: 'pointer',
+                }}
+              >
+                {t.on ? '◉' : '○'} {t.label}
+              </Box>
+            ))}
+          </Box>
+          <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mb: 1.5 }}>
+            The travel lane stays lit even with edges hidden.
+          </Typography>
 
           {viewMode === 'proximity' && (
             <>

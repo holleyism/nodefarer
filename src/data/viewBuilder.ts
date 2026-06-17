@@ -215,7 +215,10 @@ export function collapseView(view: View, nodeId: string, fromId: string): View {
 // if it's within BOTH endpoints' budget (mutual top-N) — so a hub collapses to
 // its strongest links instead of a hairball. Per-edge `shown`/`hidden`
 // overrides win; nodes left with no visible edge drop out unless `specials`.
-// Pure over the laid-out view (no relayout); reuses node/edge instances.
+// `kinds` is the global per-kind on/off (structural edges vs. wormholes); edges
+// in `exempt` (the active travel lane) ignore that toggle so the course is
+// always visible in flight. Pure over the laid-out view (no relayout); reuses
+// node/edge instances.
 export function budgetView(
   view: View,
   budget: number,
@@ -223,6 +226,8 @@ export function budgetView(
   hidden: Set<string>,
   specials: Set<string>,
   sortKey: EdgeSortKey = 'pagerank',
+  kinds: { edges: boolean; wormholes: boolean } = { edges: true, wormholes: true },
+  exempt: Set<string> = new Set(),
 ): { display: View; visibleEdgeIds: Set<string> } {
   const topPerNode = new Map<string, Set<string>>()
   for (const n of view.nodes) {
@@ -238,6 +243,8 @@ export function budgetView(
   const edges: GraphEdge[] = []
   for (const e of view.edges) {
     if (hidden.has(e.id)) continue
+    // Global per-kind toggle — the active travel lane is exempt so it stays lit.
+    if (!exempt.has(e.id) && !(e.kind === 'semantic' ? kinds.wormholes : kinds.edges)) continue
     if (shown.has(e.id) || passes(e)) {
       visibleEdgeIds.add(e.id)
       edges.push(e)

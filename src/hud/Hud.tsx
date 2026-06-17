@@ -26,6 +26,10 @@ interface Props {
   onEdgeBudgetChange: (n: number) => void
   edgeSort: EdgeSortKey
   onEdgeSortChange: (k: EdgeSortKey) => void
+  showEdges: boolean
+  onToggleEdges: () => void
+  showWormholes: boolean
+  onToggleWormholes: () => void
   following: boolean
   onFollow: () => void
   doorsClosed: boolean
@@ -56,6 +60,10 @@ export function Hud({
   onEdgeBudgetChange,
   edgeSort,
   onEdgeSortChange,
+  showEdges,
+  onToggleEdges,
+  showWormholes,
+  onToggleWormholes,
   following,
   onFollow,
   doorsClosed,
@@ -173,6 +181,10 @@ export function Hud({
         onEdgeBudgetChange={onEdgeBudgetChange}
         edgeSort={edgeSort}
         onEdgeSortChange={onEdgeSortChange}
+        showEdges={showEdges}
+        onToggleEdges={onToggleEdges}
+        showWormholes={showWormholes}
+        onToggleWormholes={onToggleWormholes}
         doorsClosed={doorsClosed}
         onToggleDoors={onToggleDoors}
       />

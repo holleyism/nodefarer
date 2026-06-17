@@ -18,6 +18,10 @@ interface Props {
   onEdgeBudgetChange: (n: number) => void
   edgeSort: EdgeSortKey
   onEdgeSortChange: (k: EdgeSortKey) => void
+  showEdges: boolean
+  onToggleEdges: () => void
+  showWormholes: boolean
+  onToggleWormholes: () => void
   doorsClosed: boolean
   onToggleDoors: () => void
 }
@@ -31,6 +35,10 @@ export function BottomBar({
   onEdgeBudgetChange,
   edgeSort,
   onEdgeSortChange,
+  showEdges,
+  onToggleEdges,
+  showWormholes,
+  onToggleWormholes,
   doorsClosed,
   onToggleDoors,
 }: Props) {
@@ -61,6 +69,10 @@ export function BottomBar({
         onEdgeBudgetChange={onEdgeBudgetChange}
         edgeSort={edgeSort}
         onEdgeSortChange={onEdgeSortChange}
+        showEdges={showEdges}
+        onToggleEdges={onToggleEdges}
+        showWormholes={showWormholes}
+        onToggleWormholes={onToggleWormholes}
         doorsClosed={doorsClosed}
         onToggleDoors={onToggleDoors}
       />

@@ -43,6 +43,10 @@ export default function App() {
   const [edgeSort, setEdgeSort] = useState<EdgeSortKey>('pagerank')
   const [shownEdgeIds, setShownEdgeIds] = useState<Set<string>>(() => new Set())
   const [hiddenEdgeIds, setHiddenEdgeIds] = useState<Set<string>>(() => new Set())
+  // Global per-kind edge visibility (structural edges vs. semantic wormholes).
+  // The active travel lane overrides these so the course shows in flight.
+  const [showEdges, setShowEdges] = useState(true)
+  const [showWormholes, setShowWormholes] = useState(true)
   // Whether the camera is locked to the course while traveling. Dragging
   // mid-flight unlocks it; "follow course" (or journey's end) re-locks.
   const [following, setFollowing] = useState(true)
@@ -189,8 +193,23 @@ export default function App() {
     if (currentId) specials.add(currentId)
     if (selectedId) specials.add(selectedId)
     for (const id of route) specials.add(id)
-    return budgetView(view, edgeBudget, shownEdgeIds, hiddenEdgeIds, specials, edgeSort)
-  }, [view, edgeBudget, edgeSort, shownEdgeIds, hiddenEdgeIds, currentId, selectedId, route])
+    // The active travel lane: edges between consecutive nodes of [current, …route].
+    // These ignore the per-kind toggle so the course is visible while in flight.
+    const lane = new Set<string>()
+    if (currentId && route.length) {
+      const path = [currentId, ...route]
+      for (let i = 0; i < path.length - 1; i++) {
+        const e = (view.incident.get(path[i]) ?? []).find(
+          (ed) => ed.source === path[i + 1] || ed.target === path[i + 1],
+        )
+        if (e) lane.add(e.id)
+      }
+    }
+    return budgetView(view, edgeBudget, shownEdgeIds, hiddenEdgeIds, specials, edgeSort, {
+      edges: showEdges,
+      wormholes: showWormholes,
+    }, lane)
+  }, [view, edgeBudget, edgeSort, shownEdgeIds, hiddenEdgeIds, showEdges, showWormholes, currentId, selectedId, route])
 
   if (!view || !currentId || !display) {
     return (
@@ -295,6 +314,10 @@ export default function App() {
         onEdgeBudgetChange={setEdgeBudget}
         edgeSort={edgeSort}
         onEdgeSortChange={setEdgeSort}
+        showEdges={showEdges}
+        onToggleEdges={() => setShowEdges((v) => !v)}
+        showWormholes={showWormholes}
+        onToggleWormholes={() => setShowWormholes((v) => !v)}
         following={following}
         onFollow={handleFollow}
         doorsClosed={doorsClosed}
