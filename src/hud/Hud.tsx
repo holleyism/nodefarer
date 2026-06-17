@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from 'react'
 import { Box, LinearProgress, Paper, Stack, Typography } from '@mui/material'
 import type { Graph, GraphNode, ViewMode } from '../types'
 import type { EdgeSortKey } from '../data/edgeSort'
@@ -98,7 +99,28 @@ export function Hud({
   )
   const neighborCount = radarTargets.length
 
-  // Left activation rail — current node, then the ship console.
+  // Which rail panel is open (one at a time). Selection drives the inspector:
+  // selecting a node deploys it; deselecting retracts it. Keep the last node so
+  // the inspector keeps its contents through the retract animation.
+  const [openId, setOpenId] = useState<string | null>(null)
+  const lastSelected = useRef<GraphNode | null>(null)
+  if (selectedNode) lastSelected.current = selectedNode
+  const inspectNode = selectedNode ?? lastSelected.current
+
+  useEffect(() => {
+    if (selectedNode) setOpenId('inspector')
+    else setOpenId((cur) => (cur === 'inspector' ? null : cur))
+  }, [selectedNode])
+
+  const handleOpenChange = (id: string | null) => {
+    // Leaving the inspector clears the selection; opening it with nothing
+    // selected inspects the current node.
+    if (openId === 'inspector' && id !== 'inspector') onClosePanel()
+    if (id === 'inspector' && !selectedNode) onSelect(currentNode.id)
+    setOpenId(id)
+  }
+
+  // Left activation rail — current node, inspector, scanner, ship console.
   const railItems: RailItem[] = [
     {
       id: 'current',
@@ -112,6 +134,33 @@ export function Hud({
           onInspect={() => onSelect(currentNode.id)}
         />
       ),
+    },
+    {
+      id: 'inspector',
+      icon: '⊙',
+      title: 'Inspector — selected node',
+      width: 320,
+      contentKey: inspectNode?.id ?? 'inspector',
+      content: inspectNode ? (
+        <NodePanel
+          node={inspectNode}
+          graph={graph}
+          currentId={currentNode.id}
+          isCurrent={inspectNode.id === currentNode.id}
+          distance={dist(currentNode, inspectNode)}
+          traveling={traveling}
+          pinnedEdgeIds={pinnedEdgeIds}
+          visibleEdgeIds={visibleEdgeIds}
+          edgeSort={edgeSort}
+          onTogglePin={onTogglePin}
+          onHoverEdge={onHoverEdge}
+          onSetEdgeVisible={onSetEdgeVisible}
+          onTravel={onTravel}
+          onExpand={onExpand}
+          onCollapse={onCollapse}
+          onClose={onClosePanel}
+        />
+      ) : null,
     },
     {
       id: 'scanner',
@@ -159,8 +208,8 @@ export function Hud({
       <BlastDoors closed={doorsClosed} label="standby — layout hold" onClosed={onDoorsClosed} />
       <ViewportFrame />
 
-      {/* Left activation rail — current node + ship console */}
-      <ConsoleRail items={railItems} />
+      {/* Left activation rail */}
+      <ConsoleRail items={railItems} openId={openId} onOpenChange={handleOpenChange} />
 
       {/* Travel banner — top center */}
       {traveling && (
@@ -213,27 +262,6 @@ export function Hud({
 
       {/* Dashboard — controls legend + wordmark */}
       <BottomBar />
-
-      {selectedNode && (
-        <NodePanel
-          node={selectedNode}
-          graph={graph}
-          currentId={currentNode.id}
-          isCurrent={selectedNode.id === currentNode.id}
-          distance={dist(currentNode, selectedNode)}
-          traveling={traveling}
-          pinnedEdgeIds={pinnedEdgeIds}
-          visibleEdgeIds={visibleEdgeIds}
-          edgeSort={edgeSort}
-          onTogglePin={onTogglePin}
-          onHoverEdge={onHoverEdge}
-          onSetEdgeVisible={onSetEdgeVisible}
-          onTravel={onTravel}
-          onExpand={onExpand}
-          onCollapse={onCollapse}
-          onClose={onClosePanel}
-        />
-      )}
     </>
   )
 }

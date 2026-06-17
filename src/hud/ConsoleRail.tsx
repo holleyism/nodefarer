@@ -1,4 +1,3 @@
-import { useState } from 'react'
 import { Box } from '@mui/material'
 import { DeployPanel } from './DeployPanel'
 import { PANEL_Z } from './hudStyles'
@@ -10,13 +9,22 @@ export interface RailItem {
   icon: React.ReactNode
   title: string
   width?: number
+  // Identity of the contents; changing it on an open panel cross-fades. Defaults
+  // to the item id (stable → no swap animation).
+  contentKey?: string
   content: React.ReactNode | ((api: { close: () => void }) => React.ReactNode)
 }
 
 // The activation rail: a stack of DeployPanels down the top-left. One open at a
-// time — opening any panel retracts the others.
-export function ConsoleRail({ items }: { items: RailItem[] }) {
-  const [openId, setOpenId] = useState<string | null>(null)
+// time — opening any panel retracts the others. Controlled so selection (the
+// inspector) and the icons can both drive which panel is open.
+interface Props {
+  items: RailItem[]
+  openId: string | null
+  onOpenChange: (id: string | null) => void
+}
+
+export function ConsoleRail({ items, openId, onOpenChange }: Props) {
   return (
     <Box
       sx={{
@@ -35,11 +43,12 @@ export function ConsoleRail({ items }: { items: RailItem[] }) {
           icon={it.icon}
           title={it.title}
           width={it.width}
+          contentKey={it.contentKey ?? it.id}
           open={openId === it.id}
-          onToggle={() => setOpenId((cur) => (cur === it.id ? null : it.id))}
+          onToggle={() => onOpenChange(openId === it.id ? null : it.id)}
         >
           {typeof it.content === 'function'
-            ? it.content({ close: () => setOpenId(null) })
+            ? it.content({ close: () => onOpenChange(null) })
             : it.content}
         </DeployPanel>
       ))}

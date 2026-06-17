@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { Box } from '@mui/material'
+import { BAR_HEIGHT } from './BottomBar'
 import { HUD, PANEL_Z } from './hudStyles'
 
 // Reusable "space panel" deploy. An activation icon on the rail; clicking it
@@ -38,22 +39,50 @@ const CLOSE_TR = [
 const STEADY_TR = 'max-height 160ms ease, top 160ms ease, width 160ms ease'
 const OPEN_MS = 950 // total open duration before steady-state takes over
 
+// Content swap (a new logical item while the panel stays open): fade the old
+// out, resize while hidden so no scrollbar flashes, fade the new in.
+const SWAP_OUT_MS = 130
+const SWAP_RESIZE_MS = 180
+const SWAP_IN_MS = 130
+const wait = (ms: number) => new Promise<void>((r) => setTimeout(r, ms))
+const nextFrame = () => new Promise<void>((r) => requestAnimationFrame(() => r()))
+
 interface Props {
   icon: React.ReactNode
   title?: string
   open: boolean
   onToggle: () => void
   width?: number
+  // Identity of the current contents. When it changes while the panel is open,
+  // the contents cross-fade + resize instead of swapping abruptly.
+  contentKey?: string
   children: React.ReactNode
 }
 
-export function DeployPanel({ icon, title, open, onToggle, width = 280, children }: Props) {
+export function DeployPanel({
+  icon,
+  title,
+  open,
+  onToggle,
+  width = 280,
+  contentKey = '',
+  children,
+}: Props) {
   // `rendered` keeps the panel mounted through the retract; `deployed` is the
   // expanded target the transitions ease toward.
   const [rendered, setRendered] = useState(open)
   const [deployed, setDeployed] = useState(open)
   const [settled, setSettled] = useState(open) // open animation finished
   const [flash, setFlash] = useState(0) // bump to replay the icon pop
+  // Content cross-fade when the open panel's contents change (e.g. inspecting a
+  // different node): `frozen` holds the outgoing contents while they fade out.
+  const [frozen, setFrozen] = useState<React.ReactNode>(null)
+  const [contentVisible, setContentVisible] = useState(true)
+  const [swapping, setSwapping] = useState(false)
+  const liveChildren = useRef(children)
+  liveChildren.current = children
+  const prevChildren = useRef(children)
+  const prevKey = useRef(contentKey)
   // Viewport-clamped placement, measured from the icon (fixed-positioned panel).
   // `collapsedTop` puts the circle at the icon's vertical center; `expandedTop`/
   // `fullH` are the final clamped box. The vertical stage animates between them.
@@ -73,11 +102,15 @@ export function DeployPanel({ icon, title, open, onToggle, width = 280, children
     if (!row) return
     const r = row.getBoundingClientRect()
     const vh = window.innerHeight
-    const maxH = vh - 2 * PAD
+    // The usable band is between the top margin and the dashboard bar (the
+    // viewport), not the raw screen bottom.
+    const top = PAD
+    const bottom = vh - BAR_HEIGHT - PAD
+    const avail = bottom - top
     // +2 for the shell's top/bottom border (content offsetHeight excludes it).
-    const fullH = Math.min((contentRef.current?.offsetHeight ?? PILL) + 2, maxH)
+    const fullH = Math.min((contentRef.current?.offsetHeight ?? PILL) + 2, avail)
     const iconCenter = r.top + ICON / 2
-    const expandedTop = Math.min(Math.max(iconCenter - fullH / 2, PAD), vh - PAD - fullH)
+    const expandedTop = Math.min(Math.max(iconCenter - fullH / 2, top), bottom - fullH)
     setAnchor({ left: r.left + ICON + GAP, collapsedTop: iconCenter - PILL / 2, expandedTop, fullH })
   }, [])
 
@@ -117,6 +150,41 @@ export function DeployPanel({ icon, title, open, onToggle, width = 280, children
       ro?.disconnect()
     }
   }, [rendered, measure])
+
+  // Lag the previous render's children by one render so the swap effect can show
+  // the OUTGOING contents while they fade out.
+  useEffect(() => {
+    prevChildren.current = children
+  })
+
+  // Cross-fade contents when the key changes on an already-open panel.
+  useLayoutEffect(() => {
+    if (prevKey.current === contentKey) return
+    const wasOpen = rendered && deployed && settled
+    prevKey.current = contentKey
+    if (!wasOpen) return // not fully open yet — the open animation owns the fade
+    let cancelled = false
+    setFrozen(prevChildren.current) // hold the outgoing contents
+    setSwapping(true) // overflow hidden → no scrollbar flash during resize
+    setContentVisible(false) // fade out
+    ;(async () => {
+      await wait(SWAP_OUT_MS)
+      if (cancelled) return
+      setFrozen(null) // swap to live contents (still invisible)
+      await nextFrame()
+      if (cancelled) return
+      measure() // resize to the new contents while hidden
+      await wait(SWAP_RESIZE_MS)
+      if (cancelled) return
+      setContentVisible(true) // fade in
+      await wait(SWAP_IN_MS)
+      if (cancelled) return
+      setSwapping(false)
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [contentKey, rendered, deployed, settled, measure])
 
   const click = () => {
     setFlash((f) => f + 1)
@@ -185,7 +253,20 @@ export function DeployPanel({ icon, title, open, onToggle, width = 280, children
             minHeight: PILL,
             maxHeight: deployed ? `${anchor?.fullH ?? 0}px` : `${PILL}px`,
             opacity: deployed ? 1 : 0,
-            overflow: 'hidden',
+            // Clip during the staged animation / content swap; once settled,
+            // let tall panels (e.g. the inspector's link list) scroll.
+            overflowX: 'hidden',
+            overflowY: settled && !swapping ? 'auto' : 'hidden',
+            // Scrollbar in the panel's own palette: transparent track, cyan thumb.
+            scrollbarWidth: 'thin',
+            scrollbarColor: 'rgba(127, 212, 255, 0.45) transparent',
+            '&::-webkit-scrollbar': { width: '8px' },
+            '&::-webkit-scrollbar-track': { background: 'transparent' },
+            '&::-webkit-scrollbar-thumb': {
+              background: 'rgba(127, 212, 255, 0.45)',
+              borderRadius: '4px',
+            },
+            '&::-webkit-scrollbar-thumb:hover': { background: 'rgba(127, 212, 255, 0.7)' },
             bgcolor: 'rgba(4, 14, 28, 0.92)',
             border: '1px solid rgba(127, 212, 255, 0.35)',
             borderRadius: deployed ? '10px' : `${PILL / 2}px`,
@@ -218,11 +299,15 @@ export function DeployPanel({ icon, title, open, onToggle, width = 280, children
             sx={{
               width,
               p: 2,
-              opacity: deployed ? 1 : 0,
-              transition: deployed ? 'opacity 200ms linear 690ms' : 'opacity 140ms linear 0ms',
+              opacity: deployed && contentVisible ? 1 : 0,
+              transition: swapping
+                ? `opacity ${SWAP_OUT_MS}ms linear`
+                : deployed
+                  ? 'opacity 200ms linear 690ms'
+                  : 'opacity 140ms linear 0ms',
             }}
           >
-            {children}
+            {frozen ?? children}
           </Box>
         </Box>
       )}

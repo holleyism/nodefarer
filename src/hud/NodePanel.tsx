@@ -4,7 +4,6 @@ import {
   Chip,
   Divider,
   IconButton,
-  Paper,
   Stack,
   Table,
   TableBody,
@@ -14,7 +13,7 @@ import {
 } from '@mui/material'
 import type { Graph, GraphEdge, GraphNode } from '../types'
 import { compareEdges, edgeValueLabel, type EdgeSortKey } from '../data/edgeSort'
-import { HUD_TEXT, MONO, MONO_SMALL, PANEL_SX, SECTION_LABEL_SX } from './hudStyles'
+import { HUD_TEXT, MONO, MONO_SMALL, SECTION_LABEL_SX } from './hudStyles'
 
 const KEY_CELL_SX = { ...SECTION_LABEL_SX, border: 0, py: 0.4 }
 const WORM = '#c6a3ff'
@@ -232,19 +231,7 @@ export function NodePanel({
     .sort((a, b) => compareEdges(a.edge, b.edge, node.id, graph.nodeById, edgeSort))
 
   return (
-    <Paper
-      elevation={8}
-      sx={{
-        position: 'absolute',
-        top: 28,
-        right: 28,
-        width: 300,
-        maxHeight: 'calc(100vh - 56px)',
-        overflowY: 'auto',
-        p: 2,
-        ...PANEL_SX,
-      }}
-    >
+    <>
       <Stack direction="row" alignItems="center" justifyContent="space-between">
         <Stack direction="row" spacing={1} alignItems="center">
           <Box sx={{ width: 10, height: 10, borderRadius: '50%', bgcolor: node.color }} />
@@ -351,6 +338,6 @@ export function NodePanel({
           </Button>
         </Box>
       )}
-    </Paper>
+    </>
   )
 }
