@@ -9,6 +9,11 @@ The bundled demo flies through a slice of the [OpenAlex](https://openalex.org)
 scholarly graph, tracing the lineage from **Hopfield's 1982 associative-memory
 paper to modern attention / transformer models**.
 
+![Nodefarer — the inspector open on a node, parked in its citation neighbourhood](docs/screenshot.png)
+
+*Parked on Hopfield's 1982 paper with the inspector open; reticles tag the
+brightest neighbours, and the activation rail sits down the left edge.*
+
 > Status: early. The navigation spine (camera, travel, inspect, search, filter,
 > expand/collapse) works; the nebula overview, guided tours, and agent copilot
 > are planned. See `docs/exploration-design.md`.
