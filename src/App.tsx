@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Box, CircularProgress, Stack, Typography } from '@mui/material'
 import type { ViewMode } from './types'
 import { Canvas } from '@react-three/fiber'
@@ -13,6 +13,7 @@ import { shortestPath } from './data/shortestPath'
 import { runForceLayout } from './layout/runForceLayout'
 import { GraphScene } from './scene/GraphScene'
 import { Hud } from './hud/Hud'
+import { SearchBar } from './hud/SearchBar'
 
 const BUNDLE_URL = '/bundle.json'
 
@@ -170,6 +171,31 @@ export default function App() {
   const handleExpand = (id: string) => reView((s, v) => s.expand(v, id))
   const handleCollapse = (id: string) =>
     reView((s, v) => s.collapse(v, id, currentId ?? v.anchorId))
+
+  // Long-range scanner: text search across the whole source (not just the view).
+  const handleSearch = useCallback(
+    (q: string) => sourceRef.current?.search(q, 'text') ?? Promise.resolve([]),
+    [],
+  )
+  // Land on a search hit: a fresh entry re-anchors the ego-net on that node
+  // (full relayout behind the blast doors), resetting the journey + overrides.
+  const handleJump = (id: string) => {
+    const s = sourceRef.current
+    if (!s || traveling) return
+    setDoorsClosed(true)
+    setTimeout(async () => {
+      const v = await s.entry({ mode: 'node', id })
+      runForceLayout(v)
+      setView(v)
+      setCurrentId(v.anchorId)
+      setSelectedId(null)
+      setRoute([])
+      clearEdges()
+      setShownEdgeIds(new Set())
+      setHiddenEdgeIds(new Set())
+      setDoorsClosed(false)
+    }, 0)
+  }
 
   // Dev-only handle for the headless smoke test (scripts/smoke.mjs).
   useEffect(() => {
@@ -333,6 +359,8 @@ export default function App() {
         onCollapse={handleCollapse}
         onClosePanel={() => setSelectedId(null)}
       />
+      {/* Top-center scanner — hidden in flight; the travel banner owns that slot. */}
+      {!traveling && <SearchBar onSearch={handleSearch} onPick={handleJump} />}
     </Box>
   )
 }
