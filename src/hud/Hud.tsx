@@ -6,12 +6,14 @@ import { BlastDoors } from './BlastDoors'
 import { BottomBar } from './BottomBar'
 import { ConsoleRail, type RailItem } from './ConsoleRail'
 import { CurrentNodeContent } from './CurrentNodeContent'
+import { FilterPanel } from './FilterPanel'
 import { PANEL_SX } from './hudStyles'
 import { NodePanel } from './NodePanel'
 import { OptionsMenu } from './OptionsMenu'
 import { Radar } from './Radar'
 import { SearchBar } from './SearchBar'
-import type { Candidate } from '../data/GraphSource'
+import type { Candidate, Predicate } from '../data/GraphSource'
+import type { GraphSchema } from '../data/graphSchema'
 import { ViewportFrame } from './ViewportFrame'
 
 function dist(a: GraphNode, b: GraphNode) {
@@ -36,6 +38,9 @@ interface Props {
   onToggleEdges: () => void
   showWormholes: boolean
   onToggleWormholes: () => void
+  schema: GraphSchema | null
+  predicate: Predicate
+  onPredicateChange: (p: Predicate) => void
   following: boolean
   onFollow: () => void
   doorsClosed: boolean
@@ -73,6 +78,9 @@ export function Hud({
   onToggleEdges,
   showWormholes,
   onToggleWormholes,
+  schema,
+  predicate,
+  onPredicateChange,
   following,
   onFollow,
   doorsClosed,
@@ -176,6 +184,15 @@ export function Hud({
           }}
         />
       ),
+    },
+    {
+      id: 'filter',
+      icon: '▽',
+      title: 'Filter — bound the view',
+      width: 280,
+      content: schema ? (
+        <FilterPanel schema={schema} predicate={predicate} onChange={onPredicateChange} />
+      ) : null,
     },
     {
       id: 'console',

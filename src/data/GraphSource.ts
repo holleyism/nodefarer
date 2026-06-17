@@ -1,4 +1,5 @@
 import type { Graph } from '../types'
+import type { GraphSchema } from './graphSchema'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // The exploration contract (Plan A spine). One interface, two implementations:
@@ -26,14 +27,16 @@ export interface ExpandRule {
 }
 
 // A node/edge filter — the "bounds" knobs. Re-queried live (ApiSource) or
-// applied as a client mask (StaticBundleSource).
+// applied as a client mask (StaticBundleSource). Schema-driven: `num`/`cat` are
+// keyed by SchemaProperty.key ('pagerank' or a GraphNode.properties key), so the
+// filter generalizes to any graph without hard-coded property names.
 export interface Predicate {
-  nodeTypes?: string[]
-  relTypes?: string[]
-  yearMin?: number
-  yearMax?: number
-  pagerankMin?: number
-  similarityMin?: number
+  nodeTypes?: string[] // allowed node types (omit = all)
+  relTypes?: string[] // allowed edge relationship types (omit = all)
+  num?: Record<string, { min?: number; max?: number }> // node numeric property ranges
+  cat?: Record<string, string[]> // node categorical property allow-lists
+  edgeNum?: Record<string, { min?: number; max?: number }> // edge numeric property ranges
+  edgeCat?: Record<string, string[]> // edge categorical property allow-lists
 }
 
 export interface Candidate {
@@ -60,6 +63,9 @@ export interface View extends Graph {
 }
 
 export interface GraphSource {
+  // The filterable schema for this dataset (derived from the bundle, or served
+  // by the backend). Drives the FilterPanel.
+  schema(): Promise<GraphSchema>
   entry(e: EntryMode): Promise<View>
   expand(view: View, nodeId: string, rule?: ExpandRule): Promise<View>
   // fromId = the current node (BFS root); collapse prunes nodeId's subtree.

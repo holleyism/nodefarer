@@ -40,6 +40,9 @@ export interface GraphEdge {
   source: string
   target: string
   kind: EdgeKind
+  // Raw relationship type (cites, authored_by, has_concept, …) — drives
+  // edge-type filtering. Falls back to kind when a source omits it.
+  rel?: string
   label: string
   props: Record<string, string | number>
 }

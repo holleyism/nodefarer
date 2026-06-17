@@ -5,9 +5,10 @@ import { Canvas } from '@react-three/fiber'
 import { syntheticBundle } from './data/generateGraph'
 import { StaticBundleSource } from './data/StaticBundleSource'
 import { ApiSource } from './data/ApiSource'
-import { budgetView } from './data/viewBuilder'
+import { budgetView, filterView } from './data/viewBuilder'
 import type { EdgeSortKey } from './data/edgeSort'
-import type { GraphSource, View } from './data/GraphSource'
+import type { GraphSource, Predicate, View } from './data/GraphSource'
+import type { GraphSchema } from './data/graphSchema'
 import type { Bundle } from './data/bundle'
 import { shortestPath } from './data/shortestPath'
 import { runForceLayout } from './layout/runForceLayout'
@@ -19,6 +20,7 @@ const BUNDLE_URL = '/bundle.json'
 export default function App() {
   const sourceRef = useRef<GraphSource | null>(null)
   const [view, setView] = useState<View | null>(null)
+  const [schema, setSchema] = useState<GraphSchema | null>(null)
   const [currentId, setCurrentId] = useState<string | null>(null)
 
   const [selectedId, setSelectedId] = useState<string | null>(null)
@@ -47,6 +49,9 @@ export default function App() {
   // The active travel lane overrides these so the course shows in flight.
   const [showEdges, setShowEdges] = useState(true)
   const [showWormholes, setShowWormholes] = useState(true)
+  // Bound-the-view filter: a reversible client mask over the working view
+  // (node type / pagerank / year). Empty = no filter.
+  const [predicate, setPredicate] = useState<Predicate>({})
   // Whether the camera is locked to the course while traveling. Dragging
   // mid-flight unlocks it; "follow course" (or journey's end) re-locks.
   const [following, setFollowing] = useState(true)
@@ -98,6 +103,20 @@ export default function App() {
       cancelled = true
     }
   }, [])
+
+  // Refresh the filterable schema as the loaded data changes. Static source
+  // returns its cached full-bundle schema; the API source re-derives from
+  // everything materialized so far, so the filters grow as you expand.
+  useEffect(() => {
+    if (!view) return
+    let cancelled = false
+    sourceRef.current?.schema().then((sc) => {
+      if (!cancelled) setSchema(sc)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [view])
 
   const clearEdges = () => {
     setPinnedEdgeIds([])
@@ -258,11 +277,24 @@ export default function App() {
         if (e) lane.add(e.id)
       }
     }
-    return budgetView(view, edgeBudget, shownEdgeIds, hiddenEdgeIds, specials, edgeSort, {
+    // Bound the view first (reversible mask; current/selected always kept), then
+    // declutter what survives.
+    const has = (o?: Record<string, unknown>) => o != null && Object.keys(o).length > 0
+    const active =
+      predicate.nodeTypes != null ||
+      predicate.relTypes != null ||
+      has(predicate.num) ||
+      has(predicate.cat) ||
+      has(predicate.edgeNum) ||
+      has(predicate.edgeCat)
+    const base = active
+      ? filterView(view, predicate, new Set([currentId, selectedId].filter(Boolean) as string[]))
+      : view
+    return budgetView(base, edgeBudget, shownEdgeIds, hiddenEdgeIds, specials, edgeSort, {
       edges: showEdges,
       wormholes: showWormholes,
     }, lane)
-  }, [view, edgeBudget, edgeSort, shownEdgeIds, hiddenEdgeIds, showEdges, showWormholes, currentId, selectedId, route])
+  }, [view, edgeBudget, edgeSort, shownEdgeIds, hiddenEdgeIds, showEdges, showWormholes, predicate, currentId, selectedId, route])
 
   if (!view || !currentId || !display) {
     return (
@@ -371,6 +403,9 @@ export default function App() {
         onToggleEdges={() => setShowEdges((v) => !v)}
         showWormholes={showWormholes}
         onToggleWormholes={() => setShowWormholes((v) => !v)}
+        schema={schema}
+        predicate={predicate}
+        onPredicateChange={setPredicate}
         following={following}
         onFollow={handleFollow}
         doorsClosed={doorsClosed}

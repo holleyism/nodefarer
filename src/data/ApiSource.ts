@@ -1,5 +1,6 @@
 import type { BundleEdge, BundleNode } from './bundle'
 import type { Candidate, EntryMode, ExpandRule, GraphSource, Predicate, View } from './GraphSource'
+import { deriveSchema, type GraphSchema } from './graphSchema'
 import { Materializer, assembleView, collapseView, filterView } from './viewBuilder'
 
 const DEFAULT_MAX_NODES = 250
@@ -47,6 +48,13 @@ export class ApiSource implements GraphSource {
     const res = await fetch(`${this.baseUrl}/api/v1${path}?${q}`, { headers: this.headers() })
     if (!res.ok) throw new Error(`${path} ${res.status}: ${await res.text()}`)
     return res.json() as Promise<T>
+  }
+
+  // Derive the schema from everything loaded so far (grows as the user expands).
+  // TODO(live, phase 3): back this with a Neo4j introspection endpoint
+  // (db.schema.nodeTypeProperties / relationshipTypes) for full-dataset ranges.
+  async schema(): Promise<GraphSchema> {
+    return deriveSchema(this.mat.allNodes(), this.mat.allEdges())
   }
 
   async entry(e: EntryMode): Promise<View> {

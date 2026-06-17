@@ -1,6 +1,6 @@
 import type { Graph, GraphEdge, GraphNode, NodeType } from '../types'
 import type { BundleEdge, BundleNode } from './bundle'
-import type { View, ViewBounds } from './GraphSource'
+import type { Predicate, View, ViewBounds } from './GraphSource'
 import { compareEdges, type EdgeSortKey } from './edgeSort'
 
 // Shared bundle→renderable mapping + View assembly, used by BOTH the static and
@@ -96,6 +96,7 @@ export class Materializer {
       source: b.source,
       target: b.target,
       kind: b.kind,
+      rel: b.rel,
       label: b.label,
       props,
     }
@@ -105,6 +106,15 @@ export class Materializer {
 
   getNode(id: string): GraphNode | undefined {
     return this.rnode.get(id)
+  }
+
+  // Everything materialized so far — lets the API source derive a schema from
+  // the nodes/edges it has actually loaded (grows as the user expands).
+  allNodes(): GraphNode[] {
+    return [...this.rnode.values()]
+  }
+  allEdges(): GraphEdge[] {
+    return [...this.redge.values()]
   }
 }
 
@@ -265,29 +275,66 @@ export function budgetView(
   return { display, visibleEdgeIds }
 }
 
-// Mask the current view by a predicate (anchor + corridor always kept).
-export function filterView(
-  view: View,
-  predicate: {
-    nodeTypes?: string[]
-    pagerankMin?: number
-    yearMin?: number
-    yearMax?: number
-  },
-): View {
+// Mask the current view by a schema-driven predicate (anchor + corridor +
+// `alwaysKeep` — e.g. the current/selected node — are never filtered out). A
+// property constraint only affects nodes that actually carry that property; a
+// node missing it passes (so e.g. a year filter doesn't drop authors). relType
+// constraints drop edges, which can in turn orphan attribute nodes.
+export function filterView(view: View, predicate: Predicate, alwaysKeep: Set<string> = new Set()): View {
+  const propVal = (n: GraphNode, key: string): string | number | undefined =>
+    key === 'pagerank' ? n.pagerank : n.properties[key]
+
   const keep = (n: GraphNode): boolean => {
-    if (n.id === view.anchorId || view.corridor.includes(n.id)) return true
+    if (n.id === view.anchorId || view.corridor.includes(n.id) || alwaysKeep.has(n.id)) return true
     if (predicate.nodeTypes && !predicate.nodeTypes.includes(n.type)) return false
-    if (predicate.pagerankMin != null && (n.pagerank ?? 0) < predicate.pagerankMin) return false
-    const year = n.properties['Year']
-    if (predicate.yearMin != null && (typeof year !== 'number' || year < predicate.yearMin)) return false
-    if (predicate.yearMax != null && (typeof year !== 'number' || year > predicate.yearMax)) return false
+    if (predicate.num) {
+      for (const [key, r] of Object.entries(predicate.num)) {
+        const v = propVal(n, key)
+        if (typeof v !== 'number') continue // node lacks it → unaffected
+        if (r.min != null && v < r.min) return false
+        if (r.max != null && v > r.max) return false
+      }
+    }
+    if (predicate.cat) {
+      for (const [key, allowed] of Object.entries(predicate.cat)) {
+        if (!allowed.length) continue
+        const v = n.properties[key]
+        if (v == null) continue // node lacks it → unaffected
+        if (!allowed.includes(String(v))) return false
+      }
+    }
     return true
   }
+
   const nodes = view.nodes.filter(keep)
   const ids = new Set(nodes.map((n) => n.id))
+
+  // Edge filter: relationship type + edge-property constraints (a missing prop
+  // passes, same as nodes).
+  const edgeOk = (e: GraphEdge): boolean => {
+    if (predicate.relTypes && !predicate.relTypes.includes(e.rel ?? e.kind)) return false
+    if (predicate.edgeNum) {
+      for (const [key, r] of Object.entries(predicate.edgeNum)) {
+        const v = e.props[key]
+        if (typeof v !== 'number') continue
+        if (r.min != null && v < r.min) return false
+        if (r.max != null && v > r.max) return false
+      }
+    }
+    if (predicate.edgeCat) {
+      for (const [key, allowed] of Object.entries(predicate.edgeCat)) {
+        if (!allowed.length) continue
+        const v = e.props[key]
+        if (v == null) continue
+        if (!allowed.includes(String(v))) return false
+      }
+    }
+    return true
+  }
+  const edgeFiltered = predicate.relTypes || predicate.edgeNum || predicate.edgeCat
+  const edges = edgeFiltered ? view.edges.filter(edgeOk) : view.edges
   const addedBy = new Map([...view.addedBy].filter(([id]) => ids.has(id)))
-  return assembleView(nodes, view.edges, {
+  return assembleView(nodes, edges, {
     anchorId: view.anchorId,
     corridor: view.corridor.filter((id) => ids.has(id)),
     addedBy,

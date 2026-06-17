@@ -1,5 +1,6 @@
 import type { Bundle, BundleEdge, BundleNode } from './bundle'
 import type { Candidate, EntryMode, ExpandRule, GraphSource, Predicate, View, ViewBounds } from './GraphSource'
+import { deriveSchema, type GraphSchema } from './graphSchema'
 import { Materializer, assembleView, collapseView, filterView } from './viewBuilder'
 
 const DEFAULT_EXPAND_LIMIT = 12
@@ -36,6 +37,18 @@ export class StaticBundleSource implements GraphSource {
 
   private neighborsOf(id: string) {
     return this.adj.get(id) ?? []
+  }
+
+  // Derive the filterable schema by scanning the whole bundle (materialized so
+  // it sees the same display properties + pagerank the filter operates on).
+  private cachedSchema?: GraphSchema
+  async schema(): Promise<GraphSchema> {
+    if (!this.cachedSchema) {
+      const nodes = this.bundle.nodes.map((b) => this.mat.node(b))
+      const edges = this.bundle.edges.map((b) => this.mat.edge(b))
+      this.cachedSchema = deriveSchema(nodes, edges)
+    }
+    return this.cachedSchema
   }
 
   private pr(id: string) {
