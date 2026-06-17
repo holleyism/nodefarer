@@ -9,6 +9,8 @@ import { PANEL_SX } from './hudStyles'
 import { NodePanel } from './NodePanel'
 import { OptionsMenu } from './OptionsMenu'
 import { Radar } from './Radar'
+import { SearchBar } from './SearchBar'
+import type { Candidate } from '../data/GraphSource'
 import { ViewportFrame } from './ViewportFrame'
 
 function dist(a: GraphNode, b: GraphNode) {
@@ -47,6 +49,8 @@ interface Props {
   onExpand: (id: string) => void
   onCollapse: (id: string) => void
   onClosePanel: () => void
+  onSearch: (query: string) => Promise<Candidate[]>
+  onJump: (id: string) => void
 }
 
 export function Hud({
@@ -81,6 +85,8 @@ export function Hud({
   onExpand,
   onCollapse,
   onClosePanel,
+  onSearch,
+  onJump,
 }: Props) {
   const traveling = destination !== null
   // Radar source: immediate neighbors of the current node. Future sources
@@ -102,6 +108,21 @@ export function Hud({
           node={currentNode}
           neighborCount={neighborCount}
           onInspect={() => onSelect(currentNode.id)}
+        />
+      ),
+    },
+    {
+      id: 'scanner',
+      icon: '⌕',
+      title: 'Scanner — search',
+      width: 300,
+      content: ({ close }: { close: () => void }) => (
+        <SearchBar
+          onSearch={onSearch}
+          onPick={(id) => {
+            close()
+            onJump(id)
+          }}
         />
       ),
     },

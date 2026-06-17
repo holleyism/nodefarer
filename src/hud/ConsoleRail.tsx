@@ -3,12 +3,14 @@ import { Box } from '@mui/material'
 import { DeployPanel } from './DeployPanel'
 import { PANEL_Z } from './hudStyles'
 
+// Content may be a node, or a render fn given a `close` (so a panel like search
+// can retract itself after acting).
 export interface RailItem {
   id: string
   icon: React.ReactNode
   title: string
   width?: number
-  content: React.ReactNode
+  content: React.ReactNode | ((api: { close: () => void }) => React.ReactNode)
 }
 
 // The activation rail: a stack of DeployPanels down the top-left. One open at a
@@ -36,7 +38,9 @@ export function ConsoleRail({ items }: { items: RailItem[] }) {
           open={openId === it.id}
           onToggle={() => setOpenId((cur) => (cur === it.id ? null : it.id))}
         >
-          {it.content}
+          {typeof it.content === 'function'
+            ? it.content({ close: () => setOpenId(null) })
+            : it.content}
         </DeployPanel>
       ))}
     </Box>

@@ -33,6 +33,10 @@ const CLOSE_TR = [
   'top 200ms ease 150ms', // … folding back toward the icon center
   'border-radius 200ms linear 150ms',
 ].join(', ')
+// Once deployed, content-driven resizes (e.g. live search results) reflow
+// quickly instead of inheriting the staged open delays.
+const STEADY_TR = 'max-height 160ms ease, top 160ms ease, width 160ms ease'
+const OPEN_MS = 950 // total open duration before steady-state takes over
 
 interface Props {
   icon: React.ReactNode
@@ -48,6 +52,7 @@ export function DeployPanel({ icon, title, open, onToggle, width = 280, children
   // expanded target the transitions ease toward.
   const [rendered, setRendered] = useState(open)
   const [deployed, setDeployed] = useState(open)
+  const [settled, setSettled] = useState(open) // open animation finished
   const [flash, setFlash] = useState(0) // bump to replay the icon pop
   // Viewport-clamped placement, measured from the icon (fixed-positioned panel).
   // `collapsedTop` puts the circle at the icon's vertical center; `expandedTop`/
@@ -79,18 +84,22 @@ export function DeployPanel({ icon, title, open, onToggle, width = 280, children
   useLayoutEffect(() => {
     if (open) {
       setRendered(true)
+      setSettled(false)
       measure()
       let raf2 = 0
       // Mount collapsed, then expand on the next frame so the transition runs.
       const raf1 = requestAnimationFrame(() => {
         raf2 = requestAnimationFrame(() => setDeployed(true))
       })
+      const settle = setTimeout(() => setSettled(true), OPEN_MS)
       return () => {
         cancelAnimationFrame(raf1)
         cancelAnimationFrame(raf2)
+        clearTimeout(settle)
       }
     }
     setDeployed(false)
+    setSettled(false)
     const t = setTimeout(() => setRendered(false), 780) // after the full retract
     return () => clearTimeout(t)
   }, [open, measure])
@@ -181,7 +190,7 @@ export function DeployPanel({ icon, title, open, onToggle, width = 280, children
             border: '1px solid rgba(127, 212, 255, 0.35)',
             borderRadius: deployed ? '10px' : `${PILL / 2}px`,
             backdropFilter: 'blur(6px)',
-            transition: deployed ? OPEN_TR : CLOSE_TR,
+            transition: deployed ? (settled ? STEADY_TR : OPEN_TR) : CLOSE_TR,
             zIndex: PANEL_Z,
             '&::after': deployed
               ? {

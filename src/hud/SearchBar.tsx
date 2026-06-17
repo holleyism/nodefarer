@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
-import { Box, InputBase, Paper } from '@mui/material'
+import { Box, InputBase, Typography } from '@mui/material'
 import type { Candidate } from '../data/GraphSource'
-import { HUD_TEXT, MONO, MONO_SMALL, PANEL_SX } from './hudStyles'
+import { HUD_TEXT, MONO, MONO_SMALL } from './hudStyles'
 
 interface Props {
   // Returns candidates for a query (text search over the active source).
@@ -10,15 +10,14 @@ interface Props {
   onPick: (id: string) => void
 }
 
-// Long-range scanner: type to find a node anywhere in the dataset (not just the
-// current view) and jump to it. Debounced text search via the GraphSource;
-// Enter takes the top hit, ↑/↓ move the cursor, Esc clears.
+// Long-range scanner contents (rendered inside a DeployPanel). Type to find a
+// node anywhere in the dataset and jump to it. Debounced text search via the
+// GraphSource; Enter takes the top hit, ↑/↓ move the cursor, Esc clears.
 export function SearchBar({ onSearch, onPick }: Props) {
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<Candidate[]>([])
   const [cursor, setCursor] = useState(0)
-  const [focused, setFocused] = useState(false)
-  // Guard against out-of-order async results: only the latest query's results win.
+  // Guard against out-of-order async results: only the latest query's win.
   const seq = useRef(0)
 
   useEffect(() => {
@@ -41,7 +40,6 @@ export function SearchBar({ onSearch, onPick }: Props) {
   const pick = (id: string) => {
     setQuery('')
     setResults([])
-    setFocused(false)
     onPick(id)
   }
 
@@ -61,32 +59,31 @@ export function SearchBar({ onSearch, onPick }: Props) {
     }
   }
 
-  const open = focused && results.length > 0
-
   return (
-    <Box sx={{ position: 'absolute', top: 28, left: '50%', transform: 'translateX(-50%)', width: 360 }}>
-      <Paper
-        elevation={4}
+    <>
+      <Typography sx={{ font: MONO, letterSpacing: 3, color: '#aadfff', mb: 1.5 }}>
+        SCANNER
+      </Typography>
+
+      <Box
         sx={{
           display: 'flex',
           alignItems: 'center',
           gap: 1,
-          px: 1.5,
-          py: 0.5,
-          ...PANEL_SX,
-          borderRadius: open ? '10px 10px 0 0' : '10px',
+          px: 1.25,
+          py: 0.75,
+          border: '1px solid rgba(127, 212, 255, 0.45)',
+          borderRadius: '6px',
         }}
       >
         <Box component="span" sx={{ font: MONO, color: 'primary.main', opacity: 0.8 }}>
           ⌖
         </Box>
         <InputBase
+          autoFocus
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={onKeyDown}
-          onFocus={() => setFocused(true)}
-          // Delay blur so a result click registers before the list unmounts.
-          onBlur={() => setTimeout(() => setFocused(false), 120)}
           placeholder="SEARCH NODES…"
           sx={{
             flex: 1,
@@ -97,23 +94,14 @@ export function SearchBar({ onSearch, onPick }: Props) {
             '& input::placeholder': { color: 'rgba(170, 223, 255, 0.4)', opacity: 1 },
           }}
         />
-      </Paper>
+      </Box>
 
-      {open && (
-        <Paper
-          elevation={6}
-          sx={{
-            ...PANEL_SX,
-            borderTop: 'none',
-            borderRadius: '0 0 10px 10px',
-            maxHeight: 280,
-            overflowY: 'auto',
-          }}
-        >
+      {results.length > 0 && (
+        <Box sx={{ mt: 1, maxHeight: 260, overflowY: 'auto', mx: -0.5 }}>
           {results.map((r, i) => (
             <Box
               key={r.id}
-              onMouseDown={(e) => e.preventDefault()} // keep focus so onBlur doesn't fire first
+              onMouseDown={(e) => e.preventDefault()} // keep input focus
               onClick={() => pick(r.id)}
               onMouseEnter={() => setCursor(i)}
               sx={{
@@ -121,11 +109,11 @@ export function SearchBar({ onSearch, onPick }: Props) {
                 alignItems: 'baseline',
                 justifyContent: 'space-between',
                 gap: 1,
-                px: 1.5,
+                px: 1,
                 py: 0.75,
+                borderRadius: '4px',
                 cursor: 'pointer',
                 bgcolor: i === cursor ? 'rgba(127, 212, 255, 0.14)' : 'transparent',
-                borderTop: i === 0 ? 'none' : '1px solid rgba(127, 212, 255, 0.08)',
               }}
             >
               <Box
@@ -147,8 +135,8 @@ export function SearchBar({ onSearch, onPick }: Props) {
               )}
             </Box>
           ))}
-        </Paper>
+        </Box>
       )}
-    </Box>
+    </>
   )
 }

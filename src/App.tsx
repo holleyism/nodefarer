@@ -13,7 +13,6 @@ import { shortestPath } from './data/shortestPath'
 import { runForceLayout } from './layout/runForceLayout'
 import { GraphScene } from './scene/GraphScene'
 import { Hud } from './hud/Hud'
-import { SearchBar } from './hud/SearchBar'
 
 const BUNDLE_URL = '/bundle.json'
 
@@ -358,9 +357,9 @@ export default function App() {
         onExpand={handleExpand}
         onCollapse={handleCollapse}
         onClosePanel={() => setSelectedId(null)}
+        onSearch={handleSearch}
+        onJump={handleJump}
       />
-      {/* Top-center scanner — hidden in flight; the travel banner owns that slot. */}
-      {!traveling && <SearchBar onSearch={handleSearch} onPick={handleJump} />}
     </Box>
   )
 }
