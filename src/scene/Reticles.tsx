@@ -24,11 +24,43 @@ interface Rect {
   y2: number
 }
 
+// Long titles ran off to the right. Wrap into lines, breaking at the space
+// nearest the `target`-th character so each line lands close to a comfortable
+// width without splitting words. A word longer than the budget stays whole.
+const WRAP_TARGET = 25
+function wrapLabel(text: string, target = WRAP_TARGET): string[] {
+  const lines: string[] = []
+  let rest = text.trim()
+  while (rest.length > target) {
+    let best = -1
+    let bestDist = Infinity
+    for (let i = 0; i < rest.length; i++) {
+      if (rest[i] !== ' ') continue
+      const d = Math.abs(i - target)
+      if (d <= bestDist) {
+        bestDist = d
+        best = i
+      } else if (i > target) {
+        break // spaces only get farther from target past here
+      }
+    }
+    if (best <= 0) break // no usable break point — leave the rest on one line
+    lines.push(rest.slice(0, best))
+    rest = rest.slice(best + 1)
+  }
+  if (rest) lines.push(rest)
+  return lines
+}
+
 // Estimated on-screen bubble rect: offset (34, -46) from the node's
-// projection; 11px mono + 1.2 letter-spacing ≈ 7.8px per character.
+// projection; 11px mono + 1.2 letter-spacing ≈ 7.8px per character, ~19px per
+// wrapped line. Width tracks the longest line; height grows downward.
+const LINE_H = 19
 function labelRect(name: string, x: number, y: number): Rect {
-  const w = 24 + name.length * 7.8
-  return { x1: x + 34, y1: y - 46, x2: x + 34 + w, y2: y - 22 }
+  const lines = wrapLabel(name)
+  const longest = lines.reduce((m, l) => Math.max(m, l.length), 0)
+  const w = 24 + longest * 7.8
+  return { x1: x + 34, y1: y - 46, x2: x + 34 + w, y2: y - 22 + (lines.length - 1) * LINE_H }
 }
 
 function intersects(a: Rect, b: Rect) {
@@ -97,6 +129,8 @@ function Reticle({ node, emphasized, onSelect }: ReticleProps) {
   const flashColor = useMemo(() => new THREE.Color('#ffffff'), [])
 
   const labelAlpha = useRef(1)
+  const lines = useMemo(() => wrapLabel(node.name), [node.name])
+  const multiline = lines.length > 1
 
   useEffect(() => {
     return () => {
@@ -214,15 +248,19 @@ function Reticle({ node, emphasized, onSelect }: ReticleProps) {
               font: '11px/1.7 ui-monospace, SFMono-Regular, Menlo, monospace',
               letterSpacing: 1.2,
               textTransform: 'uppercase',
+              textAlign: 'center',
               color: HUD_TEXT,
               background: 'rgba(4, 14, 28, 0.72)',
               border: '1px solid rgba(127, 212, 255, 0.45)',
-              borderRadius: 999,
-              padding: '1px 10px',
+              // Stadium pill reads oddly once it's tall; square it off when wrapped.
+              borderRadius: multiline ? 8 : 999,
+              padding: multiline ? '3px 10px' : '1px 10px',
               backdropFilter: 'blur(2px)',
             }}
           >
-            {node.name}
+            {lines.map((ln, i) => (
+              <div key={i}>{ln}</div>
+            ))}
           </div>
         </div>
       </Html>
