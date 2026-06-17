@@ -238,6 +238,9 @@ function Chunks({ dir }: { dir: 'down' | 'up' }) {
 interface Props {
   closed: boolean
   label: string
+  // Fires when the doors have finished shutting (so a view swap can wait for a
+  // full cover before changing the scene).
+  onClosed?: () => void
 }
 
 // Blast doors behind the window glass: they shut while the universe is being
@@ -250,7 +253,7 @@ interface Props {
 // doors are closing they mesh across the shrinking gap, but once the bodies
 // meet flush at the seam they tuck fully behind the opposing door — leaving
 // just the two warning stripes touching.
-export function BlastDoors({ closed, label }: Props) {
+export function BlastDoors({ closed, label, onClosed }: Props) {
   const [topRef, topSize] = useSize()
   const [botRef, botSize] = useSize()
   // Open travel must clear the projecting seam teeth, not just the body edge,
@@ -299,6 +302,10 @@ export function BlastDoors({ closed, label }: Props) {
       {/* top body */}
       <Box
         ref={topRef}
+        onTransitionEnd={(e) => {
+          // One signal per close: only the body's transform, only when shut.
+          if (closed && e.propertyName === 'transform') onClosed?.()
+        }}
         sx={{
           position: 'absolute',
           top: 0,

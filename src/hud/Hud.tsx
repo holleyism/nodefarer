@@ -39,6 +39,7 @@ interface Props {
   onFollow: () => void
   doorsClosed: boolean
   onToggleDoors: () => void
+  onDoorsClosed: () => void
   pinnedEdgeIds: string[]
   visibleEdgeIds: Set<string>
   onTogglePin: (id: string) => void
@@ -75,6 +76,7 @@ export function Hud({
   onFollow,
   doorsClosed,
   onToggleDoors,
+  onDoorsClosed,
   pinnedEdgeIds,
   visibleEdgeIds,
   onTogglePin,
@@ -154,7 +156,7 @@ export function Hud({
 
   return (
     <>
-      <BlastDoors closed={doorsClosed} label="standby — layout hold" />
+      <BlastDoors closed={doorsClosed} label="standby — layout hold" onClosed={onDoorsClosed} />
       <ViewportFrame />
 
       {/* Left activation rail — current node + ship console */}

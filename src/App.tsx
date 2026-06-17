@@ -154,19 +154,50 @@ export default function App() {
     setFollowSignal((s) => s + 1)
   }
 
-  // Re-query the view (expand/collapse) behind the blast doors — the relayout
-  // pins placed nodes and settles only the change, so the universe holds still.
-  const reView = (next: (s: GraphSource, v: View) => Promise<View>) => {
+  // View swaps run *behind* the blast doors: close them, compute the next view
+  // in parallel, and only apply it once the doors are FULLY shut (signaled by
+  // BlastDoors' onClosed) — then reopen. This way the relayout/repark never
+  // flashes through a half-open door. We wait for whichever finishes last: the
+  // doors closing or the async compute.
+  const pendingApply = useRef<(() => void) | null>(null)
+  const doorsShutRef = useRef(false)
+  const finishBehindDoors = () => {
+    if (!doorsShutRef.current || !pendingApply.current) return
+    const apply = pendingApply.current
+    pendingApply.current = null
+    doorsShutRef.current = false
+    apply() // swap the view (+ related state) while fully covered
+    setDoorsClosed(false) // reveal the settled scene
+  }
+  const handleDoorsClosed = () => {
+    doorsShutRef.current = true
+    finishBehindDoors()
+  }
+  // prepare(s, view) computes the next view and returns the state mutation to
+  // run once the doors are shut.
+  const behindDoors = (prepare: (s: GraphSource, v: View) => Promise<() => void>) => {
     const s = sourceRef.current
     if (!s || !view || traveling) return
-    setDoorsClosed(true)
-    setTimeout(async () => {
-      const v = await next(s, view)
-      runForceLayout(v, { pin: true })
-      setView(v)
-      setDoorsClosed(false)
-    }, 0)
+    pendingApply.current = null
+    // If the doors are already shut (e.g. held manually), we're ready now;
+    // otherwise wait for the close transition to report in.
+    doorsShutRef.current = doorsClosed
+    if (!doorsClosed) setDoorsClosed(true)
+    ;(async () => {
+      const apply = await prepare(s, view)
+      pendingApply.current = apply
+      finishBehindDoors()
+    })()
   }
+
+  // Expand/collapse: incremental relayout pins placed nodes so only the change
+  // settles.
+  const reView = (next: (s: GraphSource, v: View) => Promise<View>) =>
+    behindDoors(async (s, v) => {
+      const nv = await next(s, v)
+      runForceLayout(nv, { pin: true })
+      return () => setView(nv)
+    })
   const handleExpand = (id: string) => reView((s, v) => s.expand(v, id))
   const handleCollapse = (id: string) =>
     reView((s, v) => s.collapse(v, id, currentId ?? v.anchorId))
@@ -177,24 +208,21 @@ export default function App() {
     [],
   )
   // Land on a search hit: a fresh entry re-anchors the ego-net on that node
-  // (full relayout behind the blast doors), resetting the journey + overrides.
-  const handleJump = (id: string) => {
-    const s = sourceRef.current
-    if (!s || traveling) return
-    setDoorsClosed(true)
-    setTimeout(async () => {
-      const v = await s.entry({ mode: 'node', id })
-      runForceLayout(v)
-      setView(v)
-      setCurrentId(v.anchorId)
-      setSelectedId(null)
-      setRoute([])
-      clearEdges()
-      setShownEdgeIds(new Set())
-      setHiddenEdgeIds(new Set())
-      setDoorsClosed(false)
-    }, 0)
-  }
+  // (full relayout behind the doors), resetting the journey + overrides.
+  const handleJump = (id: string) =>
+    behindDoors(async (s) => {
+      const nv = await s.entry({ mode: 'node', id })
+      runForceLayout(nv)
+      return () => {
+        setView(nv)
+        setCurrentId(nv.anchorId)
+        setSelectedId(null)
+        setRoute([])
+        clearEdges()
+        setShownEdgeIds(new Set())
+        setHiddenEdgeIds(new Set())
+      }
+    })
 
   // Dev-only handle for the headless smoke test (scripts/smoke.mjs).
   useEffect(() => {
@@ -347,6 +375,7 @@ export default function App() {
         onFollow={handleFollow}
         doorsClosed={doorsClosed}
         onToggleDoors={() => setDoorsClosed(!doorsClosed)}
+        onDoorsClosed={handleDoorsClosed}
         pinnedEdgeIds={pinnedEdgeIds}
         visibleEdgeIds={visibleEdgeIds}
         onTogglePin={handleTogglePin}
