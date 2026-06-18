@@ -4,6 +4,7 @@ import type { Graph, GraphNode, ViewMode } from '../types'
 import type { EdgeSortKey } from '../data/edgeSort'
 import { BlastDoors } from './BlastDoors'
 import { BottomBar } from './BottomBar'
+import { Breadcrumbs } from './Breadcrumbs'
 import { ConsoleRail, type RailItem } from './ConsoleRail'
 import { CurrentNodeContent } from './CurrentNodeContent'
 import { FilterPanel } from './FilterPanel'
@@ -41,6 +42,7 @@ interface Props {
   schema: GraphSchema | null
   predicate: Predicate
   onPredicateChange: (p: Predicate) => void
+  trail: string[]
   following: boolean
   onFollow: () => void
   doorsClosed: boolean
@@ -81,6 +83,7 @@ export function Hud({
   schema,
   predicate,
   onPredicateChange,
+  trail,
   following,
   onFollow,
   doorsClosed,
@@ -141,6 +144,16 @@ export function Hud({
           neighborCount={neighborCount}
           onInspect={() => onSelect(currentNode.id)}
         />
+      ),
+    },
+    {
+      id: 'corridor',
+      icon: '↺',
+      title: 'Corridor — trail',
+      width: 260,
+      contentKey: `trail-${trail.length}`,
+      content: ({ close }: { close: () => void }) => (
+        <Breadcrumbs trail={trail} graph={graph} currentId={currentNode.id} onTravel={onTravel} onPick={close} />
       ),
     },
     {

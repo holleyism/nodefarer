@@ -33,6 +33,9 @@ export default function App() {
   // excluded). Empty array = parked.
   const [route, setRoute] = useState<string[]>([])
   const traveling = route.length > 0
+  // The journey's stops (visited node ids, in order) — drives breadcrumbs. Each
+  // completed travel appends its destination; landing fresh (search) resets it.
+  const [trail, setTrail] = useState<string[]>([])
   // How the viewport picks highlights, the proximity-mode reticle budget,
   // and the lock set chosen by TagSelector.
   const [viewMode, setViewMode] = useState<ViewMode>('proximity')
@@ -98,6 +101,7 @@ export default function App() {
       sourceRef.current = source
       setView(v)
       setCurrentId(v.anchorId)
+      setTrail([v.anchorId])
     })()
     return () => {
       cancelled = true
@@ -163,10 +167,18 @@ export default function App() {
   }
   const handleArrive = () => {
     if (route.length === 0) return
-    setCurrentId(route[0])
+    const arrived = route[0]
+    setCurrentId(arrived)
     setRoute(route.slice(1))
-    // Journey over: re-lock the camera for the next departure.
-    if (route.length === 1) setFollowing(true)
+    // Journey over: re-lock the camera and record the stop on the trail.
+    if (route.length === 1) {
+      setFollowing(true)
+      // Forward → append; back to an earlier stop → rewind (truncate) to it.
+      setTrail((t) => {
+        const idx = t.indexOf(arrived)
+        return idx >= 0 ? t.slice(0, idx + 1) : [...t, arrived]
+      })
+    }
   }
   const handleFollow = () => {
     setFollowing(true)
@@ -235,6 +247,7 @@ export default function App() {
       return () => {
         setView(nv)
         setCurrentId(nv.anchorId)
+        setTrail([nv.anchorId])
         setSelectedId(null)
         setRoute([])
         clearEdges()
@@ -406,6 +419,7 @@ export default function App() {
         schema={schema}
         predicate={predicate}
         onPredicateChange={setPredicate}
+        trail={trail}
         following={following}
         onFollow={handleFollow}
         doorsClosed={doorsClosed}
