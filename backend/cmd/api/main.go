@@ -72,6 +72,7 @@ func main() {
 		api.Use(mw.Auth(cfg.AuthToken))
 		api.Post("/entry", gh.Entry)
 		api.Post("/expand", gh.Expand)
+		api.Post("/path", gh.Path)
 		api.Get("/search", gh.Search)
 		api.Get("/similar", gh.Similar)
 		api.Get("/neighbors", gh.Neighbors)

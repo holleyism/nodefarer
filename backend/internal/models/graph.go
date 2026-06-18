@@ -58,3 +58,18 @@ type ExpandRequest struct {
 	Rel   string   `json:"rel,omitempty"`  // restrict to a relationship type
 	Limit int      `json:"limit,omitempty"`
 }
+
+type PathRequest struct {
+	From string   `json:"from"`
+	To   string   `json:"to"`
+	Have []string `json:"have,omitempty"` // ids already in the client's view
+}
+
+// PathResult — the true shortest path over the whole graph: the ordered route
+// ids plus the path nodes not already in the client's view (and the edges that
+// connect the route), which the client merges in to fly the real route.
+type PathResult struct {
+	Route []string `json:"route"`
+	Nodes []Node   `json:"nodes"`
+	Edges []Edge   `json:"edges"`
+}

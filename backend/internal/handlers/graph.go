@@ -56,6 +56,20 @@ func (h *GraphHandler) Expand(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, view)
 }
 
+func (h *GraphHandler) Path(w http.ResponseWriter, r *http.Request) {
+	var req models.PathRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, "bad request body")
+		return
+	}
+	res, err := h.svc.Path(r.Context(), req)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, res)
+}
+
 func (h *GraphHandler) Search(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	hits, err := h.svc.Search(r.Context(), q.Get("q"), q.Get("kind"), atoi(q.Get("limit")))

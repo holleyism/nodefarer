@@ -328,9 +328,11 @@ func (s *GraphService) Expand(ctx context.Context, req models.ExpandRequest) (mo
 		relClause = " AND type(r) = $rel"
 		params["rel"] = strings.ToUpper(req.Rel)
 	}
+	// Project pagerank as an alias so ORDER BY can use it — after RETURN DISTINCT
+	// the original `n` is out of scope.
 	cypher := fmt.Sprintf(
 		"MATCH (a:%s {id:$id})-[r]-(n) WHERE NOT n.id IN $have%s "+
-			"RETURN DISTINCT n.id AS id ORDER BY coalesce(n.pagerank,0.0) DESC LIMIT $k",
+			"RETURN DISTINCT n.id AS id, coalesce(n.pagerank,0.0) AS pr ORDER BY pr DESC LIMIT $k",
 		labelForID(req.ID), relClause)
 	recs, err := s.run(ctx, cypher, params)
 	if err != nil {
@@ -356,6 +358,71 @@ func (s *GraphService) Expand(ctx context.Context, req models.ExpandRequest) (mo
 		return models.View{}, err
 	}
 	return models.View{Nodes: nodes, Edges: edges}, nil
+}
+
+// pathMaxHops bounds the shortestPath search so an unreachable pair can't run
+// an unbounded traversal over the whole store.
+const pathMaxHops = 15
+
+// Path returns the true shortest path over the WHOLE graph (not just the loaded
+// view): the ordered route ids, the route nodes not already in `have`, and the
+// edges connecting the route. Empty route if there's no path within the bound.
+func (s *GraphService) Path(ctx context.Context, req models.PathRequest) (models.PathResult, error) {
+	empty := models.PathResult{Route: []string{}, Nodes: []models.Node{}, Edges: []models.Edge{}}
+	if req.From == "" || req.To == "" {
+		return empty, fmt.Errorf("path needs from and to")
+	}
+	if req.From == req.To {
+		return models.PathResult{Route: []string{req.From}, Nodes: []models.Node{}, Edges: []models.Edge{}}, nil
+	}
+	// Typed endpoints hit the per-label id index; the path itself is untyped.
+	cypher := fmt.Sprintf(
+		"MATCH (a:%s {id:$from}), (b:%s {id:$to}) "+
+			"MATCH p = shortestPath((a)-[*..%d]-(b)) "+
+			"RETURN [n IN nodes(p) | n.id] AS route",
+		labelForID(req.From), labelForID(req.To), pathMaxHops)
+	recs, err := s.run(ctx, cypher, map[string]any{"from": req.From, "to": req.To})
+	if err != nil {
+		return empty, err
+	}
+	if len(recs) == 0 {
+		return empty, nil // unreachable within the bound
+	}
+	var route []string
+	if raw, ok := recs[0].AsMap()["route"].([]any); ok {
+		for _, v := range raw {
+			if id := str(v); id != "" {
+				route = append(route, id)
+			}
+		}
+	}
+	if len(route) == 0 {
+		return empty, nil
+	}
+	// Delta: route nodes the client doesn't already have.
+	have := map[string]bool{}
+	for _, id := range req.Have {
+		have[id] = true
+	}
+	var delta []string
+	for _, id := range route {
+		if !have[id] {
+			delta = append(delta, id)
+		}
+	}
+	nodes := []models.Node{}
+	if len(delta) > 0 {
+		nodes, err = s.getNodes(ctx, delta)
+		if err != nil {
+			return empty, err
+		}
+	}
+	// Edges connecting the route (corridor lane).
+	edges, err := s.inducedEdges(ctx, route, nil)
+	if err != nil {
+		return empty, err
+	}
+	return models.PathResult{Route: route, Nodes: nodes, Edges: edges}, nil
 }
 
 func (s *GraphService) Search(ctx context.Context, q, kind string, limit int) ([]models.Candidate, error) {
