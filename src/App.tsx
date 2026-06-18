@@ -5,7 +5,7 @@ import { Canvas } from '@react-three/fiber'
 import { syntheticBundle } from './data/generateGraph'
 import { StaticBundleSource } from './data/StaticBundleSource'
 import { ApiSource } from './data/ApiSource'
-import { budgetView, filterView } from './data/viewBuilder'
+import { budgetView, corridorView, filterView } from './data/viewBuilder'
 import type { EdgeSortKey } from './data/edgeSort'
 import type { GraphSource, Predicate, View } from './data/GraphSource'
 import type { GraphSchema } from './data/graphSchema'
@@ -55,6 +55,8 @@ export default function App() {
   // Bound-the-view filter: a reversible client mask over the working view
   // (node type / pagerank / year). Empty = no filter.
   const [predicate, setPredicate] = useState<Predicate>({})
+  // Auto-collapse "paths not taken": fold off-corridor branches when parked.
+  const [autoCollapse, setAutoCollapse] = useState(false)
   // Whether the camera is locked to the course while traveling. Dragging
   // mid-flight unlocks it; "follow course" (or journey's end) re-locks.
   const [following, setFollowing] = useState(true)
@@ -300,14 +302,18 @@ export default function App() {
       has(predicate.cat) ||
       has(predicate.edgeNum) ||
       has(predicate.edgeCat)
-    const base = active
-      ? filterView(view, predicate, new Set([currentId, selectedId].filter(Boolean) as string[]))
-      : view
+    const keep = new Set([currentId, selectedId].filter(Boolean) as string[])
+    let base = active ? filterView(view, predicate, keep) : view
+    // Fold off-corridor branches once parked (never mid-flight, so nothing
+    // vanishes under the ship while travelling).
+    if (autoCollapse && !traveling && currentId) {
+      base = corridorView(base, trail, currentId, keep)
+    }
     return budgetView(base, edgeBudget, shownEdgeIds, hiddenEdgeIds, specials, edgeSort, {
       edges: showEdges,
       wormholes: showWormholes,
     }, lane)
-  }, [view, edgeBudget, edgeSort, shownEdgeIds, hiddenEdgeIds, showEdges, showWormholes, predicate, currentId, selectedId, route])
+  }, [view, edgeBudget, edgeSort, shownEdgeIds, hiddenEdgeIds, showEdges, showWormholes, predicate, autoCollapse, traveling, trail, currentId, selectedId, route])
 
   if (!view || !currentId || !display) {
     return (
@@ -416,6 +422,8 @@ export default function App() {
         onToggleEdges={() => setShowEdges((v) => !v)}
         showWormholes={showWormholes}
         onToggleWormholes={() => setShowWormholes((v) => !v)}
+        autoCollapse={autoCollapse}
+        onToggleAutoCollapse={() => setAutoCollapse((v) => !v)}
         schema={schema}
         predicate={predicate}
         onPredicateChange={setPredicate}

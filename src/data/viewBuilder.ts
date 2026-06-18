@@ -220,6 +220,43 @@ export function collapseView(view: View, nodeId: string, fromId: string): View {
   })
 }
 
+// Auto-collapse "paths not taken": keep the corridor (visited trail) and the
+// current node's local frontier, and fold away branches that are only reachable
+// *through* an earlier corridor stop. Reversible render-time mask (reuses
+// instances, no relayout). BFS out from the current node treating corridor nodes
+// as walls — kept but not expanded — so their off-corridor subtrees drop out
+// while the corridor chain itself stays connected.
+export function corridorView(
+  view: View,
+  trail: string[],
+  currentId: string,
+  alsoKeep: Set<string> = new Set(),
+): View {
+  const corridor = new Set(trail)
+  const keep = new Set<string>([...trail, ...alsoKeep, currentId])
+  const queue = [currentId]
+  const seen = new Set([currentId])
+  while (queue.length) {
+    const cur = queue.shift()!
+    for (const nb of view.neighbors.get(cur) ?? []) {
+      if (seen.has(nb)) continue
+      seen.add(nb)
+      keep.add(nb)
+      if (!corridor.has(nb)) queue.push(nb) // don't expand through corridor walls
+    }
+  }
+  const nodes = view.nodes.filter((n) => keep.has(n.id))
+  const ids = new Set(nodes.map((n) => n.id))
+  const edges = view.edges.filter((e) => ids.has(e.source) && ids.has(e.target))
+  const addedBy = new Map([...view.addedBy].filter(([id]) => ids.has(id)))
+  return assembleView(nodes, edges, {
+    anchorId: view.anchorId,
+    corridor: view.corridor.filter((id) => ids.has(id)),
+    addedBy,
+    bounds: view.bounds,
+  })
+}
+
 // Render-time declutter: keep each node's top-`budget` structural edges (ranked
 // by the other endpoint's PageRank); wormholes always pass. An edge shows only
 // if it's within BOTH endpoints' budget (mutual top-N) — so a hub collapses to

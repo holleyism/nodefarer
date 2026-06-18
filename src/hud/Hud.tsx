@@ -39,6 +39,8 @@ interface Props {
   onToggleEdges: () => void
   showWormholes: boolean
   onToggleWormholes: () => void
+  autoCollapse: boolean
+  onToggleAutoCollapse: () => void
   schema: GraphSchema | null
   predicate: Predicate
   onPredicateChange: (p: Predicate) => void
@@ -80,6 +82,8 @@ export function Hud({
   onToggleEdges,
   showWormholes,
   onToggleWormholes,
+  autoCollapse,
+  onToggleAutoCollapse,
   schema,
   predicate,
   onPredicateChange,
@@ -226,6 +230,8 @@ export function Hud({
           onToggleEdges={onToggleEdges}
           showWormholes={showWormholes}
           onToggleWormholes={onToggleWormholes}
+          autoCollapse={autoCollapse}
+          onToggleAutoCollapse={onToggleAutoCollapse}
           doorsClosed={doorsClosed}
           onToggleDoors={onToggleDoors}
         />

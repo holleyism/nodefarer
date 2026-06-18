@@ -26,6 +26,8 @@ interface Props {
   onToggleEdges: () => void
   showWormholes: boolean
   onToggleWormholes: () => void
+  autoCollapse: boolean
+  onToggleAutoCollapse: () => void
   doorsClosed: boolean
   onToggleDoors: () => void
 }
@@ -45,6 +47,8 @@ export function OptionsMenu({
   onToggleEdges,
   showWormholes,
   onToggleWormholes,
+  autoCollapse,
+  onToggleAutoCollapse,
   doorsClosed,
   onToggleDoors,
 }: Props) {
@@ -190,6 +194,32 @@ export function OptionsMenu({
           Reticles lock only nodes linked to the current node.
         </Typography>
       )}
+
+      <Typography sx={{ font: MONO, letterSpacing: 1.5, color: 'text.secondary', mt: 1.5 }}>
+        CORRIDOR
+      </Typography>
+      <Box
+        component="button"
+        onClick={onToggleAutoCollapse}
+        sx={{
+          width: '100%',
+          mt: 0.5,
+          font: MONO_SMALL,
+          letterSpacing: 1.5,
+          textTransform: 'uppercase',
+          padding: '4px 0',
+          color: autoCollapse ? '#02030a' : '#aadfff',
+          background: autoCollapse ? '#7fd4ff' : 'transparent',
+          border: '1px solid rgba(127, 212, 255, 0.45)',
+          borderRadius: '6px',
+          cursor: 'pointer',
+        }}
+      >
+        {autoCollapse ? '◉' : '○'} auto-collapse paths not taken
+      </Box>
+      <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mt: 0.5 }}>
+        Fold off-corridor branches when parked; rewind via the corridor trail.
+      </Typography>
 
       <Typography sx={{ font: MONO, letterSpacing: 1.5, color: 'text.secondary', mt: 1.5 }}>
         BLAST DOORS
