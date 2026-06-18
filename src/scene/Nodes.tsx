@@ -14,6 +14,13 @@ export const NODE_RADIUS: Record<NodeType, number> = {
 
 interface NodeMeshProps {
   node: GraphNode
+  // Position is passed as primitives (not read from the node instance) so memo's
+  // shallow compare actually re-renders when the layout MUTATES x/y/z in place on
+  // the same cached instance — otherwise nodes paint at stale positions after a
+  // dynamic relayout (expand / search-land) while the camera uses live positions.
+  x: number
+  y: number
+  z: number
   geometry: THREE.SphereGeometry
   isSelected: boolean
   isCurrent: boolean
@@ -21,7 +28,7 @@ interface NodeMeshProps {
   onTravel: (id: string) => void
 }
 
-const NodeMesh = memo(function NodeMesh({ node, geometry, isSelected, isCurrent, onSelect, onTravel }: NodeMeshProps) {
+const NodeMesh = memo(function NodeMesh({ node, x, y, z, geometry, isSelected, isCurrent, onSelect, onTravel }: NodeMeshProps) {
   const radius = NODE_RADIUS[node.type]
   const handleClick = (e: ThreeEvent<MouseEvent>) => {
     e.stopPropagation()
@@ -33,7 +40,7 @@ const NodeMesh = memo(function NodeMesh({ node, geometry, isSelected, isCurrent,
     onTravel(node.id)
   }
   return (
-    <group position={[node.x!, node.y!, node.z!]}>
+    <group position={[x, y, z]}>
       {/* Halo: billboarded additive glow so the node reads as a star, and so
           beams have something soft to dissolve into. Doesn't take clicks.
           Skipped on the current node — the camera sits right on top of it, so
@@ -94,6 +101,9 @@ export function Nodes({ graph, selectedId, currentId, onSelect, onTravel }: Node
         <NodeMesh
           key={node.id}
           node={node}
+          x={node.x!}
+          y={node.y!}
+          z={node.z!}
           geometry={geometry}
           isSelected={node.id === selectedId}
           isCurrent={node.id === currentId}
