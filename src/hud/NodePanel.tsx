@@ -14,6 +14,7 @@ import {
 import type { Graph, GraphEdge, GraphNode } from '../types'
 import { compareEdges, edgeValueLabel, type EdgeSortKey } from '../data/edgeSort'
 import { HUD_TEXT, MONO, MONO_SMALL, SECTION_LABEL_SX } from './hudStyles'
+import { ValuePill } from './ValuePill'
 
 const KEY_CELL_SX = { ...SECTION_LABEL_SX, border: 0, py: 0.4 }
 const WORM = '#c6a3ff'
@@ -304,7 +305,10 @@ export function NodePanel({
       {links.length > 0 && (
         <>
           <Divider sx={{ my: 1 }} />
-          <Typography sx={{ ...SECTION_LABEL_SX, mb: 0.75 }}>Links — {links.length}</Typography>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, mb: 0.75 }}>
+            <Typography sx={SECTION_LABEL_SX}>Links</Typography>
+            <ValuePill>{links.length}</ValuePill>
+          </Box>
           {links.map(({ edge, other }) => (
             <LinkRow
               key={edge.id}

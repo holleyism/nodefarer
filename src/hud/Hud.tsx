@@ -13,6 +13,7 @@ import { NodePanel } from './NodePanel'
 import { OptionsMenu } from './OptionsMenu'
 import { Radar } from './Radar'
 import { SearchBar } from './SearchBar'
+import { ValuePill } from './ValuePill'
 import type { Candidate, Predicate } from '../data/GraphSource'
 import type { GraphSchema } from '../data/graphSchema'
 import { ViewportFrame } from './ViewportFrame'
@@ -262,32 +263,33 @@ export function Hud({
             ...PANEL_SX,
           }}
         >
-          <Stack direction="row" spacing={1.5} alignItems="center" sx={{ mb: 0.5 }}>
+          <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 0.5 }}>
             <Typography variant="body2">
-              Traveling to <strong>{destination.name}</strong>
-              {hopsLeft > 1 ? ` · ${hopsLeft} hops remaining` : ''}…
+              Traveling to <strong>{destination.name}</strong>…
             </Typography>
-            {!following && (
-              <Box
-                component="button"
-                onClick={onFollow}
-                sx={{
-                  font: '10px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace',
-                  letterSpacing: 1.5,
-                  textTransform: 'uppercase',
-                  color: '#aadfff',
-                  background: 'transparent',
-                  border: '1px solid rgba(127, 212, 255, 0.45)',
-                  borderRadius: 999,
-                  padding: '2px 10px',
-                  cursor: 'pointer',
-                  whiteSpace: 'nowrap',
-                  '&:hover': { borderColor: '#7fd4ff' },
-                }}
-              >
-                ⌖ follow course
-              </Box>
-            )}
+            {hopsLeft > 1 && <ValuePill>{hopsLeft} hops</ValuePill>}
+            {/* Always available in flight: lit when the camera is locked to the
+                course, a call-to-action to re-lock after dragging unlocks it. */}
+            <Box
+              component="button"
+              onClick={onFollow}
+              sx={{
+                ml: 'auto',
+                font: '10px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace',
+                letterSpacing: 1.5,
+                textTransform: 'uppercase',
+                color: following ? '#02030a' : '#aadfff',
+                background: following ? '#7fd4ff' : 'transparent',
+                border: '1px solid rgba(127, 212, 255, 0.45)',
+                borderRadius: 999,
+                padding: '2px 10px',
+                cursor: 'pointer',
+                whiteSpace: 'nowrap',
+                '&:hover': { borderColor: '#7fd4ff' },
+              }}
+            >
+              {following ? '⌖ following' : '⌖ follow course'}
+            </Box>
           </Stack>
           <LinearProgress />
         </Paper>

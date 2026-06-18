@@ -1,6 +1,7 @@
 import { Box, Chip, Stack, Typography } from '@mui/material'
 import type { GraphNode } from '../types'
 import { HUD_TEXT, MONO, MONO_SMALL } from './hudStyles'
+import { ValuePill } from './ValuePill'
 
 interface Props {
   node: GraphNode
@@ -25,12 +26,10 @@ export function CurrentNodeContent({ node, neighborCount, onInspect }: Props) {
       </Stack>
 
       <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1.5 }}>
-        <Chip
-          label={`${neighborCount} links`}
-          size="small"
-          variant="outlined"
-          sx={{ font: MONO_SMALL, letterSpacing: 1 }}
-        />
+        <Typography sx={{ font: MONO_SMALL, letterSpacing: 1, color: 'text.secondary', textTransform: 'uppercase' }}>
+          Links
+        </Typography>
+        <ValuePill>{neighborCount}</ValuePill>
         <Chip
           label={node.type}
           size="small"
