@@ -16,5 +16,5 @@ ingest/data/
 __pycache__/
 *.pyc
 
-# generated demo bundle (regenerate with ingest/export_bundle.py -> public/)
-public/bundle.json
+# NOTE: public/bundle.json is the committed zero-config demo bundle
+# (regenerate with ingest/export_bundle.py and copy it into public/).
