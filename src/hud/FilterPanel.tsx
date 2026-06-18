@@ -1,6 +1,7 @@
 import { Box, Slider, Typography } from '@mui/material'
 import type { Predicate } from '../data/GraphSource'
 import type { GraphSchema, SchemaProperty } from '../data/graphSchema'
+import { RangePills } from './ValuePill'
 
 const MONO = '11px/1.7 ui-monospace, SFMono-Regular, Menlo, monospace'
 const MONO_SMALL = '10px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace'
@@ -38,7 +39,12 @@ function Toggle({ label, on, onClick }: { label: string; on: boolean; onClick: (
         border: '1px solid rgba(127, 212, 255, 0.45)',
         borderRadius: '6px',
         cursor: 'pointer',
-        whiteSpace: 'nowrap',
+        // Wrap long category/field names instead of overflowing past the
+        // scrollbar (which would clip them on the right).
+        whiteSpace: 'normal',
+        textAlign: 'left',
+        maxWidth: '100%',
+        wordBreak: 'break-word',
       }}
     >
       {label}
@@ -46,9 +52,10 @@ function Toggle({ label, on, onClick }: { label: string; on: boolean; onClick: (
   )
 }
 
-// Schema-driven view filter, sectioned into NODE and EDGE. Every control is
-// generated from the GraphSchema, so nothing about a particular dataset is
-// hard-coded. Applied as a reversible client mask; clearing restores everything.
+// Schema-driven view filter, sectioned into NODE and EDGE. Controls are rendered
+// by plain functions (NOT inline components) so the <Slider> reconciles in place
+// across re-renders — defining a component inline would give it a new identity
+// each render and remount the slider mid-drag, dropping the pointer lock.
 export function FilterPanel({ schema, predicate, onChange }: Props) {
   const has = (o?: Record<string, unknown>) => o != null && Object.keys(o).length > 0
   const active =
@@ -82,16 +89,22 @@ export function FilterPanel({ schema, predicate, onChange }: Props) {
     onChange({ ...predicate, [field]: Object.keys(map).length ? map : undefined })
   }
 
-  // One numeric range slider.
-  const NumControl = ({ p, field }: { p: SchemaProperty; field: 'num' | 'edgeNum' }) => {
-    const [lo, hi] = p.range!
+  // Plain render helpers — return JSX inline (no new component type per render).
+  const renderNum = (p: SchemaProperty, field: 'num' | 'edgeNum') => {
+    const [rawLo, hi] = p.range!
+    // A sub-1 fractional minimum (e.g. PageRank 5.5e-1) reads as a confusing
+    // scientific-notation label — anchor the slider's left at a clean 0 instead.
+    const lo = rawLo > 0 && rawLo < 1 ? 0 : rawLo
     const cur = predicate[field]?.[p.key]
     const val: [number, number] = [cur?.min ?? lo, cur?.max ?? hi]
     return (
-      <Box>
-        <Typography sx={LABEL_SX}>
-          {p.label.toUpperCase()} — {fmt(val[0])}–{fmt(val[1])}
-        </Typography>
+      <Box key={p.key}>
+        <Box sx={{ ...LABEL_SX, display: 'flex', alignItems: 'center', gap: 0.75, flexWrap: 'wrap' }}>
+          <Typography sx={{ font: MONO, letterSpacing: 1.5, color: 'text.secondary' }}>
+            {p.label.toUpperCase()}
+          </Typography>
+          <RangePills lo={fmt(val[0])} hi={fmt(val[1])} />
+        </Box>
         <Slider
           size="small"
           min={lo}
@@ -103,17 +116,18 @@ export function FilterPanel({ schema, predicate, onChange }: Props) {
             setNum(field, p.key, a <= lo && b >= hi ? undefined : { min: a > lo ? a : undefined, max: b < hi ? b : undefined })
           }}
           aria-label={p.label}
-          sx={{ mt: -0.5, mb: 0.5 }}
+          // Narrower than full so the thumb at max clears the panel scrollbar
+          // (padding on a Slider doesn't move its absolutely-positioned rail).
+          sx={{ mt: -0.5, mb: 0.5, width: 'calc(100% - 14px)' }}
         />
       </Box>
     )
   }
 
-  // One categorical chip group.
-  const CatControl = ({ p, field }: { p: SchemaProperty; field: 'cat' | 'edgeCat' }) => {
+  const renderCat = (p: SchemaProperty, field: 'cat' | 'edgeCat') => {
     const allowed = predicate[field]?.[p.key] ?? p.categories!
     return (
-      <Box>
+      <Box key={p.key}>
         <Typography sx={LABEL_SX}>{p.label.toUpperCase()}</Typography>
         <Box sx={CHIPS_SX}>
           {p.categories!.map((c) => (
@@ -154,12 +168,8 @@ export function FilterPanel({ schema, predicate, onChange }: Props) {
           </Box>
         </>
       )}
-      {nodeNum.map((p) => (
-        <NumControl key={p.key} p={p} field="num" />
-      ))}
-      {nodeCat.map((p) => (
-        <CatControl key={p.key} p={p} field="cat" />
-      ))}
+      {nodeNum.map((p) => renderNum(p, 'num'))}
+      {nodeCat.map((p) => renderCat(p, 'cat'))}
 
       {/* ── EDGES ── */}
       <Typography sx={SECTION_SX}>↔ EDGES</Typography>
@@ -178,12 +188,8 @@ export function FilterPanel({ schema, predicate, onChange }: Props) {
           </Box>
         </>
       )}
-      {edgeNum.map((p) => (
-        <NumControl key={p.key} p={p} field="edgeNum" />
-      ))}
-      {edgeCat.map((p) => (
-        <CatControl key={p.key} p={p} field="edgeCat" />
-      ))}
+      {edgeNum.map((p) => renderNum(p, 'edgeNum'))}
+      {edgeCat.map((p) => renderCat(p, 'edgeCat'))}
       {edgeNum.length === 0 && edgeCat.length === 0 && (
         <Typography sx={{ font: MONO_SMALL, color: 'text.secondary', mt: 0.5 }}>
           No edge properties in this graph.

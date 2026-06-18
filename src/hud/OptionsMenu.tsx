@@ -1,6 +1,7 @@
 import { Box, Slider, Typography } from '@mui/material'
 import type { ViewMode } from '../types'
 import { EDGE_SORT_OPTIONS, type EdgeSortKey } from '../data/edgeSort'
+import { ValuePill } from './ValuePill'
 
 const MONO = '11px/1.7 ui-monospace, SFMono-Regular, Menlo, monospace'
 const MONO_SMALL = '10px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace'
@@ -90,9 +91,12 @@ export function OptionsMenu({
         })}
       </Box>
 
-      <Typography sx={{ font: MONO, letterSpacing: 1.5, color: 'text.secondary' }}>
-        EDGES / NODE — {edgeBudget}
-      </Typography>
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
+        <Typography sx={{ font: MONO, letterSpacing: 1.5, color: 'text.secondary' }}>
+          EDGES / NODE
+        </Typography>
+        <ValuePill>{edgeBudget}</ValuePill>
+      </Box>
       <Slider
         size="small"
         min={5}
@@ -100,7 +104,7 @@ export function OptionsMenu({
         value={edgeBudget}
         onChange={(_, v) => onEdgeBudgetChange(v as number)}
         aria-label="Edges per node"
-        sx={{ mt: -0.5 }}
+        sx={{ mt: -0.5, width: 'calc(100% - 14px)' }}
       />
       <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mt: -0.5, mb: 1 }}>
         Show each node's strongest {edgeBudget} links (wormholes always shown).
@@ -171,9 +175,12 @@ export function OptionsMenu({
 
       {viewMode === 'proximity' && (
         <>
-          <Typography sx={{ font: MONO, letterSpacing: 1.5, color: 'text.secondary' }}>
-            TARGET LOCKS — {maxTags}
-          </Typography>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
+            <Typography sx={{ font: MONO, letterSpacing: 1.5, color: 'text.secondary' }}>
+              TARGET LOCKS
+            </Typography>
+            <ValuePill>{maxTags}</ValuePill>
+          </Box>
           <Slider
             size="small"
             min={1}
@@ -181,7 +188,7 @@ export function OptionsMenu({
             value={maxTags}
             onChange={(_, v) => onMaxTagsChange(v as number)}
             aria-label="Target locks"
-            sx={{ mt: -0.5 }}
+            sx={{ mt: -0.5, width: 'calc(100% - 14px)' }}
           />
           <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mt: -0.5 }}>
             Reticles lock the closest {maxTags} bodies on the glass.
