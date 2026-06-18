@@ -3,7 +3,9 @@ import type { Candidate, EntryMode, ExpandRule, GraphSource, Predicate, View } f
 import { deriveSchema, type GraphSchema } from './graphSchema'
 import { Materializer, assembleView, collapseView, filterView } from './viewBuilder'
 
-const DEFAULT_MAX_NODES = 250
+// Landing density when the caller doesn't specify EntryMode.maxNodes; aligned
+// with the bundle so the live scene lands as tight/clean. Stories can override.
+const DEFAULT_MAX_NODES = 120
 
 interface ServerView {
   anchor?: string
@@ -58,10 +60,11 @@ export class ApiSource implements GraphSource {
   }
 
   async entry(e: EntryMode): Promise<View> {
+    const maxNodes = ('maxNodes' in e && e.maxNodes) || DEFAULT_MAX_NODES
     const body =
       e.mode === 'search'
-        ? { mode: 'search', query: e.query, kind: e.kind, maxNodes: DEFAULT_MAX_NODES }
-        : { mode: 'node', id: e.mode === 'node' ? e.id : undefined, maxNodes: DEFAULT_MAX_NODES }
+        ? { mode: 'search', query: e.query, kind: e.kind, maxNodes }
+        : { mode: 'node', id: e.mode === 'node' ? e.id : undefined, maxNodes }
     const sv = await this.post<ServerView>('/entry', body)
     const anchor = sv.anchor ?? sv.nodes[0]?.id ?? ''
     const nodes = sv.nodes.map((n) => this.mat.node(n))
@@ -70,7 +73,7 @@ export class ApiSource implements GraphSource {
       anchorId: anchor,
       corridor: [anchor],
       addedBy: new Map(),
-      bounds: { anchor, maxNodes: DEFAULT_MAX_NODES },
+      bounds: { anchor, maxNodes },
     })
   }
 

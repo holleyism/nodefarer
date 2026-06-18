@@ -12,11 +12,13 @@ import type { GraphSchema } from './graphSchema'
 
 // The initial query. `node` lands on a node; `overview` opens the nebula map
 // (needs community LOD — not in the static source yet); `search` finds an
-// anchor by text/semantic match then lands there.
+// anchor by text/semantic match then lands there. `maxNodes` sets the landing
+// density (omit for the source default) so a story/tour can request a tighter
+// or denser lens than ad-hoc exploration.
 export type EntryMode =
-  | { mode: 'node'; id?: string }
+  | { mode: 'node'; id?: string; maxNodes?: number }
   | { mode: 'overview' }
-  | { mode: 'search'; query: string; kind?: 'text' | 'semantic' }
+  | { mode: 'search'; query: string; kind?: 'text' | 'semantic'; maxNodes?: number }
 
 // How an expansion pulls neighbors: which relationship, ranked how, capped.
 export interface ExpandRule {

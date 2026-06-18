@@ -6,7 +6,9 @@ import { Materializer, assembleView, collapseView, filterView } from './viewBuil
 const DEFAULT_EXPAND_LIMIT = 12
 // Entry grows a bounded multi-hop neighborhood with a per-node fan-out cap, so
 // no single node contributes a hairball (the old 1-hop star pulled ~249 spokes).
-const ENTRY_MAX_NODES = 100
+// DEFAULT_ENTRY_MAX is the landing density when the caller doesn't specify one
+// (EntryMode.maxNodes); stories/tours can request their own.
+const DEFAULT_ENTRY_MAX = 120
 const ENTRY_FANOUT = 10
 const ENTRY_MAX_HOPS = 3
 
@@ -95,20 +97,21 @@ export class StaticBundleSource implements GraphSource {
     } else {
       anchor = this.defaultAnchor() // overview not supported client-side yet
     }
+    const maxNodes = ('maxNodes' in e && e.maxNodes) || DEFAULT_ENTRY_MAX
 
     // Per-node fan-out BFS: each node contributes only its top-`fanout`
     // neighbors (by PageRank), so the scene is a multi-hop neighborhood, not a
     // star. Capped by total nodes and hop depth.
     const ids = new Set<string>([anchor])
     let frontier = [anchor]
-    for (let hop = 0; hop < ENTRY_MAX_HOPS && frontier.length && ids.size < ENTRY_MAX_NODES; hop++) {
+    for (let hop = 0; hop < ENTRY_MAX_HOPS && frontier.length && ids.size < maxNodes; hop++) {
       const next: string[] = []
       for (const f of frontier) {
-        if (ids.size >= ENTRY_MAX_NODES) break
+        if (ids.size >= maxNodes) break
         const cand = [...new Set(this.neighborsOf(f).map((n) => n.other))].filter((o) => !ids.has(o))
         cand.sort((a, b) => this.pr(b) - this.pr(a))
         for (const c of cand.slice(0, ENTRY_FANOUT)) {
-          if (ids.size >= ENTRY_MAX_NODES) break
+          if (ids.size >= maxNodes) break
           if (!ids.has(c)) {
             ids.add(c)
             next.push(c)
@@ -121,7 +124,7 @@ export class StaticBundleSource implements GraphSource {
       anchorId: anchor,
       corridor: [anchor],
       addedBy: new Map(),
-      bounds: { anchor, maxNodes: ENTRY_MAX_NODES },
+      bounds: { anchor, maxNodes },
     })
   }
 
