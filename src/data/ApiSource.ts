@@ -1,5 +1,5 @@
 import type { BundleEdge, BundleNode } from './bundle'
-import type { Candidate, EntryMode, ExpandRule, GraphSource, Predicate, View } from './GraphSource'
+import type { Candidate, EntryMode, ExpandRule, GraphSource, PathResult, Predicate, View } from './GraphSource'
 import { deriveSchema, type GraphSchema } from './graphSchema'
 import { Materializer, assembleView, collapseView, filterView } from './viewBuilder'
 
@@ -110,6 +110,34 @@ export class ApiSource implements GraphSource {
 
   async filter(view: View, predicate: Predicate): Promise<View> {
     return filterView(view, predicate)
+  }
+
+  // True shortest path over the full Neo4j graph; merges any path nodes not yet
+  // loaded into the view (like expand) so the ship can fly the real route.
+  async path(view: View, fromId: string, toId: string): Promise<PathResult | null> {
+    const have = view.nodes.map((n) => n.id)
+    const sv = await this.post<ServerView & { route?: string[] }>('/path', {
+      from: fromId,
+      to: toId,
+      have,
+    })
+    if (!sv.route || sv.route.length < 1) return null
+    const haveSet = new Set(have)
+    const nodeById = new Map(view.nodes.map((n) => [n.id, n]))
+    const addedBy = new Map(view.addedBy)
+    for (const bn of sv.nodes) {
+      nodeById.set(bn.id, this.mat.node(bn))
+      if (!haveSet.has(bn.id) && !addedBy.has(bn.id)) addedBy.set(bn.id, fromId)
+    }
+    const edgeById = new Map(view.edges.map((ed) => [ed.id, ed]))
+    for (const be of sv.edges) edgeById.set(be.id, this.mat.edge(be))
+    const newView = assembleView([...nodeById.values()], [...edgeById.values()], {
+      anchorId: view.anchorId,
+      corridor: view.corridor,
+      addedBy,
+      bounds: view.bounds,
+    })
+    return { view: newView, route: sv.route }
   }
 
   async search(query: string, kind: 'text' | 'semantic' = 'text'): Promise<Candidate[]> {

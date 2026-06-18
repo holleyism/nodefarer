@@ -47,6 +47,14 @@ export interface Candidate {
   score?: number // pagerank / similarity / distance, per call
 }
 
+// True shortest-path travel: the view extended to include every node on the
+// path (so the ship can fly through them) plus the ordered route ids
+// (inclusive of both endpoints).
+export interface PathResult {
+  view: View
+  route: string[]
+}
+
 export interface ViewBounds {
   anchor: string
   maxNodes: number
@@ -73,6 +81,10 @@ export interface GraphSource {
   // fromId = the current node (BFS root); collapse prunes nodeId's subtree.
   collapse(view: View, nodeId: string, fromId: string): Promise<View>
   filter(view: View, predicate: Predicate): Promise<View>
+  // True shortest path over the WHOLE graph (not just the loaded view), with the
+  // view extended to include any path nodes that weren't loaded. Null if there's
+  // no path at all. The client lays out the new nodes and flies the route.
+  path(view: View, fromId: string, toId: string): Promise<PathResult | null>
   search(query: string, kind?: 'text' | 'semantic'): Promise<Candidate[]>
   neighbors(nodeId: string, rule?: ExpandRule): Promise<Candidate[]>
 }

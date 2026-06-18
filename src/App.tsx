@@ -14,6 +14,7 @@ import { shortestPath } from './data/shortestPath'
 import { runForceLayout } from './layout/runForceLayout'
 import { GraphScene } from './scene/GraphScene'
 import { Hud } from './hud/Hud'
+import { MessageToast, type AppMessage } from './hud/MessageToast'
 
 const BUNDLE_URL = '/bundle.json'
 
@@ -63,6 +64,11 @@ export default function App() {
   const [followSignal, setFollowSignal] = useState(0)
   // Blast doors: shut the window while the universe is being (re)laid out.
   const [doorsClosed, setDoorsClosed] = useState(false)
+  // Bottom-left status/error readout.
+  const [message, setMessage] = useState<AppMessage | null>(null)
+  const msgId = useRef(0)
+  const notify = (text: string, level: 'error' | 'info' = 'info') =>
+    setMessage({ id: ++msgId.current, text, level })
 
   // Pick the data source and land on an entry view. VITE_API_URL → live
   // ApiSource (Go/Neo4j); otherwise the static bundle (served, else synthetic).
@@ -137,23 +143,44 @@ export default function App() {
     setPinnedEdgeIds((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id]))
   const handleTravel = (id: string) => {
     if (!view || !currentId || traveling || id === currentId) return
+    const s = sourceRef.current
+    if (!s) return
     setSelectedId(null)
     clearEdges()
-    const path = shortestPath(view, currentId, id)
-    // Force-show any budgeted-out edges along the route so the lane is visible
-    // for the whole flight.
-    if (path && path.length > 1) {
+    const from = currentId
+    ;(async () => {
+      // True shortest path over the whole graph (via the source). If that fails
+      // (e.g. the live /path endpoint isn't deployed yet), fall back to a path
+      // over the loaded view so travel still works.
+      let result = null as Awaited<ReturnType<GraphSource['path']>>
+      try {
+        result = await s.path(view, from, id)
+      } catch {
+        result = null
+      }
+      let nextView = view
+      let path: string[]
+      if (result && result.route.length > 1) {
+        nextView = result.view
+        path = result.route
+        // Lay out any path nodes that weren't loaded (existing nodes pinned).
+        if (nextView.nodes.length > view.nodes.length) runForceLayout(nextView, { pin: true })
+      } else {
+        const local = shortestPath(view, from, id)
+        path = local ?? [from, id] // unreachable → direct flight
+      }
+      // Reveal the corridor edges so the lane stays lit for the whole flight.
       const reveal = new Set(shownEdgeIds)
       for (let i = 0; i < path.length - 1; i++) {
-        const e = (view.incident.get(path[i]) ?? []).find(
+        const e = (nextView.incident.get(path[i]) ?? []).find(
           (ed) => ed.source === path[i + 1] || ed.target === path[i + 1],
         )
         if (e) reveal.add(e.id)
       }
       setShownEdgeIds(reveal)
-    }
-    // Unreachable nodes get a direct flight rather than no flight.
-    setRoute(path ? path.slice(1) : [id])
+      if (nextView !== view) setView(nextView)
+      setRoute(path.slice(1))
+    })()
   }
   const handleSetEdgeVisible = (id: string, visible: boolean) => {
     setShownEdgeIds((s) => {
@@ -216,10 +243,29 @@ export default function App() {
     // otherwise wait for the close transition to report in.
     doorsShutRef.current = doorsClosed
     if (!doorsClosed) setDoorsClosed(true)
-    ;(async () => {
-      const apply = await prepare(s, view)
+    // Never leave the doors stuck shut: if the compute errors or stalls, apply a
+    // no-op and reopen so the scene comes back (and log why).
+    let done = false
+    const settle = (apply: () => void) => {
+      if (done) return
+      done = true
+      clearTimeout(timer)
       pendingApply.current = apply
       finishBehindDoors()
+    }
+    const timer = setTimeout(() => {
+      notify('Timed out updating the view — try again.', 'error')
+      doorsShutRef.current = true
+      settle(() => {})
+    }, 8000)
+    ;(async () => {
+      try {
+        settle(await prepare(s, view))
+      } catch (err) {
+        notify(`Couldn't update the view: ${err instanceof Error ? err.message : String(err)}`, 'error')
+        doorsShutRef.current = true
+        settle(() => {})
+      }
     })()
   }
 
@@ -446,6 +492,7 @@ export default function App() {
         onSearch={handleSearch}
         onJump={handleJump}
       />
+      <MessageToast message={message} onDismiss={() => setMessage(null)} />
     </Box>
   )
 }

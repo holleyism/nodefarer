@@ -1,5 +1,5 @@
 import type { Bundle, BundleEdge, BundleNode } from './bundle'
-import type { Candidate, EntryMode, ExpandRule, GraphSource, Predicate, View, ViewBounds } from './GraphSource'
+import type { Candidate, EntryMode, ExpandRule, GraphSource, PathResult, Predicate, View, ViewBounds } from './GraphSource'
 import { deriveSchema, type GraphSchema } from './graphSchema'
 import { Materializer, assembleView, collapseView, filterView } from './viewBuilder'
 
@@ -150,6 +150,55 @@ export class StaticBundleSource implements GraphSource {
 
   async collapse(view: View, nodeId: string, fromId: string): Promise<View> {
     return collapseView(view, nodeId, fromId)
+  }
+
+  // True shortest path over the WHOLE bundle adjacency (not just the loaded
+  // view), with the path nodes merged into the view so the ship can fly them.
+  async path(view: View, fromId: string, toId: string): Promise<PathResult | null> {
+    const route = this.bfsPath(fromId, toId)
+    if (!route) return null
+    const ids = new Set(view.nodes.map((n) => n.id))
+    const addedBy = new Map(view.addedBy)
+    for (const id of route) {
+      if (!ids.has(id)) {
+        ids.add(id)
+        if (!addedBy.has(id)) addedBy.set(id, fromId)
+      }
+    }
+    const newView = this.buildView(ids, {
+      anchorId: view.anchorId,
+      corridor: view.corridor,
+      addedBy,
+      bounds: view.bounds,
+    })
+    return { view: newView, route }
+  }
+
+  // Unweighted BFS over the full bundle adjacency → ordered ids, or null.
+  private bfsPath(from: string, to: string): string[] | null {
+    if (from === to) return [from]
+    const prev = new Map<string, string>()
+    const seen = new Set([from])
+    const queue = [from]
+    while (queue.length) {
+      const cur = queue.shift()!
+      for (const { other } of this.neighborsOf(cur)) {
+        if (seen.has(other)) continue
+        seen.add(other)
+        prev.set(other, cur)
+        if (other === to) {
+          const path = [to]
+          let c = to
+          while (c !== from) {
+            c = prev.get(c)!
+            path.push(c)
+          }
+          return path.reverse()
+        }
+        queue.push(other)
+      }
+    }
+    return null
   }
 
   async filter(view: View, predicate: Predicate): Promise<View> {
