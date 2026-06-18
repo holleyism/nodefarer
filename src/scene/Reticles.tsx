@@ -143,9 +143,14 @@ function Reticle({ node, emphasized, onSelect }: ReticleProps) {
   useEffect(() => {
     if (emphasized) flash.current = 1
   }, [emphasized])
-  const pos = useMemo(() => new THREE.Vector3(node.x!, node.y!, node.z!), [node])
+  // Stable scratch vector — positions are read LIVE each frame, since the layout
+  // mutates node.x/y/z in place on the same cached instance; a useMemo([node])
+  // here would leave the reticle's fade/visibility (and the radar lock) computed
+  // from the node's old position after a dynamic relayout.
+  const pos = useMemo(() => new THREE.Vector3(), [])
 
   useFrame(({ camera, size }, delta) => {
+    pos.set(node.x!, node.y!, node.z!)
     const factor = screenEdgeFactor(pos, camera, size)
     reticleVisibility.set(node.id, factor)
 

@@ -85,6 +85,12 @@ function EdgeBracket({ edge, graph, pinned }: BracketProps) {
   useFrame(({ camera }, delta) => {
     if (!topRef.current || !botRef.current) return
     const f = (flash.current = Math.max(0, flash.current - delta / 0.5))
+    // Read endpoints live — the layout mutates node x/y/z in place on the same
+    // instance, so a memoized vector would leave the bracket at the node's old
+    // position after a dynamic relayout (floating where the edge no longer is).
+    av.set(a.x!, a.y!, a.z!)
+    bv.set(b.x!, b.y!, b.z!)
+    mid.copy(av).add(bv).multiplyScalar(0.5)
     s.dir.subVectors(bv, av)
     const len = s.dir.length()
     s.dir.divideScalar(len || 1)

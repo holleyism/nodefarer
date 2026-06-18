@@ -118,6 +118,12 @@ export function DeployPanel({
     if (open) {
       setRendered(true)
       setSettled(false)
+      // Start clean so a fresh open always shows its contents — an interrupted
+      // content cross-fade could otherwise leave contentVisible stuck false
+      // (panel opens, resizes, but is empty until the next interaction).
+      setContentVisible(true)
+      setSwapping(false)
+      setFrozen(null)
       measure()
       let raf2 = 0
       // Mount collapsed, then expand on the next frame so the transition runs.

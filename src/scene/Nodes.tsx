@@ -21,6 +21,9 @@ interface NodeMeshProps {
   x: number
   y: number
   z: number
+  // Passed as a prop (not read off the node instance) for the same reason as
+  // position: if a node is ever recoloured in place, memo would otherwise miss it.
+  color: string
   geometry: THREE.SphereGeometry
   isSelected: boolean
   isCurrent: boolean
@@ -28,7 +31,7 @@ interface NodeMeshProps {
   onTravel: (id: string) => void
 }
 
-const NodeMesh = memo(function NodeMesh({ node, x, y, z, geometry, isSelected, isCurrent, onSelect, onTravel }: NodeMeshProps) {
+const NodeMesh = memo(function NodeMesh({ node, x, y, z, color, geometry, isSelected, isCurrent, onSelect, onTravel }: NodeMeshProps) {
   const radius = NODE_RADIUS[node.type]
   const handleClick = (e: ThreeEvent<MouseEvent>) => {
     e.stopPropagation()
@@ -49,7 +52,7 @@ const NodeMesh = memo(function NodeMesh({ node, x, y, z, geometry, isSelected, i
         <sprite scale={radius * (isSelected ? 6 : 5)} raycast={() => null}>
           <spriteMaterial
             map={glowTexture}
-            color={node.color}
+            color={color}
             transparent
             opacity={isSelected ? 0.7 : 0.5}
             blending={THREE.AdditiveBlending}
@@ -72,8 +75,8 @@ const NodeMesh = memo(function NodeMesh({ node, x, y, z, geometry, isSelected, i
         }}
       >
         <meshStandardMaterial
-          color={node.color}
-          emissive={node.color}
+          color={color}
+          emissive={color}
           emissiveIntensity={isSelected ? 1.6 : 0.7}
           roughness={0.4}
           metalness={0.1}
@@ -104,6 +107,7 @@ export function Nodes({ graph, selectedId, currentId, onSelect, onTravel }: Node
           x={node.x!}
           y={node.y!}
           z={node.z!}
+          color={node.color}
           geometry={geometry}
           isSelected={node.id === selectedId}
           isCurrent={node.id === currentId}
