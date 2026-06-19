@@ -83,7 +83,19 @@ picks one:
 ### 3.2 Expansion / collapse + the corridor
 - **Expansion** is typed, ranked, capped (`ExpandRule`). Incremental layout:
   pin shown nodes, settle only the new ones; the blast-doors cover the recompute
-  (their real functional job). ✅ camera/travel exist; 🔜 incremental relayout.
+  (their real functional job). ✅
+- **Collapse** is the clean inverse of expand, anchored to the **true shortest
+  path** from the current node (the same `path()` travel uses, computed over the
+  whole dataset — `collapseAlongPath`). For `collapse(X)`:
+  1. Ensure X's shortest-path edge is present (it *reappears* if a prior collapse
+     removed it); the node is kept and re-anchored, so it's always re-expandable.
+  2. Remove all of X's *other* edges.
+  3. Prune any node now unreachable (in the visible view) from the current node.
+  A node with an alternate visible path stays; one that depended on X folds away.
+  Because the anchor is the *dataset* shortest path (not the visible graph), it
+  doesn't drift to longer alternates, and it's symmetric with travel (collapse
+  folds along the shortest path, travel re-unfolds along it). In a tree (no
+  alternate paths) this reduces to the familiar "collapse hides the subtree." ✅
 - **Corridor** = the visited path (breadcrumbs). It's the memory of the journey.
 - **Auto-collapse (your idea):** as the universe expands and you advance, the
   off-corridor regions — *places not visited, paths not taken* — **summarize

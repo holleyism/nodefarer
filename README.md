@@ -78,8 +78,24 @@ staged animation; one is open at a time:
   visibility, and a manual blast-doors toggle.
 
 **Expand / collapse.** From the inspector, *expand* a node to pull in its top
-neighbours, or *collapse* to prune everything beyond it back down — both happen
-behind the blast doors so the layout never visibly thrashes.
+neighbours, or *collapse* to fold it back down — both happen behind the blast
+doors so the layout never visibly thrashes.
+
+Collapse is anchored to the **true shortest path** from where the ship currently
+sits (computed over the whole dataset, not just what's on screen):
+
+- The collapsed node is kept and re-anchored to its shortest-path edge — that
+  edge stays (and *reappears* if an earlier collapse had removed it), so the
+  node remains and can always be re-expanded. Expand and collapse are a clean
+  pair.
+- All of the node's *other* edges are removed, and any node left with **no
+  remaining visible path** to the ship folds away with it. A node that's still
+  reachable another way stays put.
+- So in a graph, collapsing a hub doesn't necessarily delete its neighbours —
+  only the ones that depended on it. In a **tree** (no alternate paths) this
+  reduces to exactly the familiar "collapse hides the whole subtree."
+- It's symmetric with travel: collapse folds along the shortest path, and
+  travelling back re-unfolds along it, reopening just those edges.
 
 **Wormholes.** Semantic links render as violet conduits. Crossing one is the
 payoff of the Hopfield demo: from the early associative-memory backbone, jump the
