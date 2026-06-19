@@ -1,7 +1,7 @@
 import type { BundleEdge, BundleNode } from './bundle'
 import type { Candidate, EntryMode, ExpandRule, GraphSource, PathResult, Predicate, View } from './GraphSource'
 import { deriveSchema, type GraphSchema } from './graphSchema'
-import { Materializer, assembleView, collapseView, filterView } from './viewBuilder'
+import { Materializer, assembleView, collapseAlongPath, collapseView, filterView } from './viewBuilder'
 
 // Landing density when the caller doesn't specify EntryMode.maxNodes; aligned
 // with the bundle so the live scene lands as tight/clean. Stories can override.
@@ -104,7 +104,17 @@ export class ApiSource implements GraphSource {
     })
   }
 
+  // Collapse along the TRUE shortest path (Neo4j /path), so the node's
+  // shortest-path edge is canonical (reappearing if a prior collapse removed
+  // it). Falls back to a visible-view path if /path is unavailable.
   async collapse(view: View, nodeId: string, fromId: string): Promise<View> {
+    if (nodeId === fromId) return collapseAlongPath(view, nodeId, [fromId], fromId)
+    try {
+      const r = await this.path(view, fromId, nodeId)
+      if (r) return collapseAlongPath(r.view, nodeId, r.route, fromId)
+    } catch {
+      // /path unavailable — fall through to the visible-view collapse.
+    }
     return collapseView(view, nodeId, fromId)
   }
 

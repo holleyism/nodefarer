@@ -2,6 +2,7 @@ import type { Graph, GraphEdge, GraphNode, NodeType } from '../types'
 import type { BundleEdge, BundleNode } from './bundle'
 import type { Predicate, View, ViewBounds } from './GraphSource'
 import { compareEdges, type EdgeSortKey } from './edgeSort'
+import { shortestPath } from './shortestPath'
 
 // Shared bundle→renderable mapping + View assembly, used by BOTH the static and
 // API sources so the scene behaves identically against either. Community colour
@@ -154,14 +155,20 @@ export function assembleView(
 
 // ── client-side view operations (shared by both sources) ────────────────────
 
-// Fold a node back up (dominator prune). Rooted at `fromId` (the ship's current
-// node): remove `nodeId` AND every node that becomes unreachable from `fromId`
-// once `nodeId` is gone — i.e. the nodes `nodeId` dominates. A node with an
-// alternate path stays (it's still reachable), and because the node itself is
-// removed there are no dangling "path" edges. Collapsing the current node clears
-// everything but it. O(V+E) over a bounded view.
-export function collapseView(view: View, nodeId: string, fromId: string): View {
-  if (nodeId === fromId) {
+// Collapse `nodeId` along a precomputed `route` (the true shortest path from the
+// current node to it). The node is re-anchored to its shortest-path edge and
+// folded to a stub: that edge stays (reappearing if a prior collapse removed
+// it), ALL of the node's other edges are removed, and any node left unreachable
+// from `fromId` is pruned. The collapsed node itself always stays (re-expandable)
+// — it's only ever removed as a cascade when it loses every path. Collapsing the
+// current node clears everything but it. O(V+E) over a bounded view.
+export function collapseAlongPath(
+  view: View,
+  nodeId: string,
+  route: string[],
+  fromId: string,
+): View {
+  if (nodeId === fromId || route.length < 2) {
     const root = view.nodeById.get(fromId)
     return assembleView(root ? [root] : [], [], {
       anchorId: view.anchorId,
@@ -171,27 +178,55 @@ export function collapseView(view: View, nodeId: string, fromId: string): View {
     })
   }
 
-  // Reachable from the current node with `nodeId` treated as removed (a wall).
+  // Keep only the node's shortest-path edge (to its predecessor on the route);
+  // drop every other edge touching it.
+  const pred = route[route.length - 2]
+  const edges = view.edges.filter((e) => {
+    if (e.source !== nodeId && e.target !== nodeId) return true
+    return (
+      (e.source === pred && e.target === nodeId) || (e.target === pred && e.source === nodeId)
+    )
+  })
+
+  // Prune: keep only what's still reachable from the current node over the
+  // remaining edges (so a node with another visible path stays).
+  const adj = new Map<string, string[]>()
+  const link = (a: string, b: string) => {
+    const l = adj.get(a)
+    if (l) l.push(b)
+    else adj.set(a, [b])
+  }
+  for (const e of edges) {
+    link(e.source, e.target)
+    link(e.target, e.source)
+  }
   const keep = new Set<string>([fromId])
   const queue = [fromId]
   while (queue.length) {
     const cur = queue.shift()!
-    for (const nb of view.neighbors.get(cur) ?? []) {
-      if (nb === nodeId || keep.has(nb)) continue
+    for (const nb of adj.get(cur) ?? []) {
+      if (keep.has(nb)) continue
       keep.add(nb)
       queue.push(nb)
     }
   }
 
   const keepNodes = view.nodes.filter((n) => keep.has(n.id))
-  const edges = view.edges.filter((e) => keep.has(e.source) && keep.has(e.target))
+  const finalEdges = edges.filter((e) => keep.has(e.source) && keep.has(e.target))
   const addedBy = new Map([...view.addedBy].filter(([id]) => keep.has(id)))
-  return assembleView(keepNodes, edges, {
+  return assembleView(keepNodes, finalEdges, {
     anchorId: view.anchorId,
     corridor: view.corridor.filter((id) => keep.has(id)),
     addedBy,
     bounds: view.bounds,
   })
+}
+
+// Fallback collapse when the source can't supply a true (dataset) shortest path:
+// anchor to the shortest path over the *visible* view instead.
+export function collapseView(view: View, nodeId: string, fromId: string): View {
+  const route = shortestPath(view, fromId, nodeId) ?? [fromId, nodeId]
+  return collapseAlongPath(view, nodeId, route, fromId)
 }
 
 // Auto-collapse "paths not taken": keep the corridor (visited trail) and the

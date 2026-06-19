@@ -1,7 +1,7 @@
 import type { Bundle, BundleEdge, BundleNode } from './bundle'
 import type { Candidate, EntryMode, ExpandRule, GraphSource, PathResult, Predicate, View, ViewBounds } from './GraphSource'
 import { deriveSchema, type GraphSchema } from './graphSchema'
-import { Materializer, assembleView, collapseView, filterView } from './viewBuilder'
+import { Materializer, assembleView, collapseAlongPath, collapseView, filterView } from './viewBuilder'
 
 const DEFAULT_EXPAND_LIMIT = 12
 // Entry grows a bounded multi-hop neighborhood with a per-node fan-out cap, so
@@ -148,8 +148,14 @@ export class StaticBundleSource implements GraphSource {
     return this.buildView(ids, { anchorId: view.anchorId, corridor, addedBy, bounds: view.bounds })
   }
 
+  // Collapse along the TRUE shortest path (full bundle adjacency), so the node's
+  // shortest-path edge is the canonical one (reappearing if a prior collapse
+  // removed it). Falls back to a visible-view path if unreachable.
   async collapse(view: View, nodeId: string, fromId: string): Promise<View> {
-    return collapseView(view, nodeId, fromId)
+    if (nodeId === fromId) return collapseAlongPath(view, nodeId, [fromId], fromId)
+    const r = await this.path(view, fromId, nodeId)
+    if (!r) return collapseView(view, nodeId, fromId)
+    return collapseAlongPath(r.view, nodeId, r.route, fromId)
   }
 
   // True shortest path over the WHOLE bundle adjacency (not just the loaded
