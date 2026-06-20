@@ -100,6 +100,8 @@ export default function App() {
     destination: [number, number, number]
     // false → only turn the gaze to the destination, keep the current zoom.
     zoom?: boolean
+    // true → snap the gaze instantly (no animated turn), e.g. behind the doors.
+    instant?: boolean
   } | null>(null)
   // Blast doors: shut the window while the universe is being (re)laid out.
   const [doorsClosed, setDoorsClosed] = useState(false)
@@ -596,7 +598,26 @@ export default function App() {
         return behindDoorsAsync(async (s, v) => {
           const nv = await s.expand(v, op.nodeId, op.rule)
           runForceLayout(nv, { pin: true })
-          return () => setView(nv)
+          return () => {
+            setView(nv)
+            // Turn (instantly, behind the doors) to look down the conduit to the
+            // revealed node — aim at the midpoint so the current node (near) and
+            // the wormhole both read when the doors open, without centring the
+            // far node. Doors then open already viewing the connection.
+            if (op.face) {
+              const fn = nv.nodeById.get(op.face)
+              const cn = currentId ? nv.nodeById.get(currentId) : null
+              if (fn?.x != null && cn?.x != null) {
+                const mid: [number, number, number] = [
+                  (cn.x! + fn.x!) / 2,
+                  (cn.y! + fn.y!) / 2,
+                  (cn.z! + fn.z!) / 2,
+                ]
+                setFrameTarget({ points: [mid], destination: mid, zoom: false, instant: true })
+                setFrameSignal((f) => f + 1)
+              }
+            }
+          }
         })
       case 'collapse':
         return behindDoorsAsync(async (s, v) => {
@@ -607,7 +628,14 @@ export default function App() {
       case 'travel':
         reframeForMove()
         if (op.collapseOffPath) setAutoCollapse(true)
-        return travelTo(op.to)
+        return travelTo(op.to).then(() => {
+          // Arrived — open the destination's details (we're now parked on it).
+          if (op.inspect) {
+            setSelectedId(op.to)
+            clearEdges()
+            return nextFrame()
+          }
+        })
       case 'look': {
         if (op.edge && view) {
           const e = (view.incident.get(op.edge.from) ?? []).find(

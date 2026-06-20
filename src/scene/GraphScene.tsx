@@ -31,6 +31,7 @@ interface Props {
     points: [number, number, number][]
     destination: [number, number, number]
     zoom?: boolean
+    instant?: boolean
   } | null
   onUnlock: () => void
   onTaggedChange: (ids: string[]) => void

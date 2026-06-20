@@ -82,6 +82,11 @@ const TOURS = [
     title: 'Idea genealogy & diffusion',
     subtitle: 'Hopfield 1982 → modern attention',
   },
+  {
+    file: 's2-wormhole-bankruptcy.json',
+    title: 'Wormhole: from memory to markets',
+    subtitle: 'Associative memory → corporate bankruptcy',
+  },
 ]
 
 export function Hud({

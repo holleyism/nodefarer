@@ -85,6 +85,7 @@ interface Props {
     points: [number, number, number][]
     destination: [number, number, number]
     zoom?: boolean
+    instant?: boolean
   } | null
   onUnlock: () => void
   onArrive: () => void
@@ -271,6 +272,14 @@ export function ShipCamera({ currentNode, targetNode, following, followSignal, r
         Y_AXIS.clone().applyQuaternion(stance.current).multiplyScalar(radius.current),
       )
       const face = faceYawPitch(camPos, dest)
+      // instant: snap the gaze (e.g. behind the blast doors, so they open already
+      // looking at the target). Otherwise animate the turn.
+      if (frameTarget.instant) {
+        aim.current = null
+        look.current.yaw += wrapPi(face.yaw - look.current.yaw)
+        look.current.pitch = THREE.MathUtils.clamp(face.pitch, -1.45, 1.45)
+        return
+      }
       const toYaw = look.current.yaw + wrapPi(face.yaw - look.current.yaw)
       const angle = Math.hypot(toYaw - look.current.yaw, face.pitch - look.current.pitch)
       aim.current = {

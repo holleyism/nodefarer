@@ -1,0 +1,59 @@
+{
+  "schemaVersion": 1,
+  "id": "s2-wormhole-bankruptcy",
+  "title": "Wormhole: from memory to markets",
+  "subtitle": "Explore an idea until a wormhole drops you somewhere unexpected.",
+  "bundle": "bundle.json",
+  "entry": { "mode": "node", "id": "W2128084896", "maxNodes": 40 },
+  "steps": [
+    {
+      "id": "land",
+      "title": "Memory, as a network",
+      "body": "1982. Hopfield shows how a network of simple units can store and recall patterns — associative memory: a system settling into a remembered state. We're not headed anywhere in particular. Let's just follow this idea and see where it goes.",
+      "op": { "kind": "inspect", "id": "W2128084896" },
+      "nextLabel": "Follow the idea →"
+    },
+    {
+      "id": "learn",
+      "title": "Learning the associations",
+      "body": "The next question is how a network LEARNS its associations, not just stores them. We follow a citation to the Boltzmann machine (Hinton & Sejnowski, 1985) — a network that learns the very patterns it settles into. Its details open on the left.",
+      "op": { "kind": "travel", "to": "W2042492924", "inspect": true },
+      "nextLabel": "Keep exploring →"
+    },
+    {
+      "id": "recognize",
+      "title": "Recognizing patterns",
+      "body": "Keep going. By 1989 the thread reaches a synthesis — \"Neural network models for pattern recognition and associative memory.\" We've stayed inside one idea the whole way: store, learn, recognize. This is where it gets strange.",
+      "op": { "kind": "travel", "to": "W2014702547", "inspect": true },
+      "nextLabel": "What else connects here? →"
+    },
+    {
+      "id": "wormhole",
+      "title": "A wormhole",
+      "body": "Not every link is a citation. A violet conduit blooms from this node — a semantic edge to a near-identical idea that never cited it, in a field you'd never think to check. Where does it lead?",
+      "op": { "kind": "expand", "nodeId": "W2014702547", "rule": { "relType": "semantic", "limit": 1 }, "face": "W2341983589" },
+      "nextLabel": "Follow the wormhole →"
+    },
+    {
+      "id": "surprise",
+      "title": "Corporate bankruptcy",
+      "body": "Business and finance. \"Financial distress prediction using the hybrid associative memory\" (2016). The same recall mechanism that models how a brain settles into a memory is here predicting which companies will collapse. A 1982 idea from neuroscience, alive in corporate finance — and the citation graph would never have shown you.",
+      "op": { "kind": "inspect", "id": "W2341983589", "focus": true },
+      "nextLabel": "Cross over →"
+    },
+    {
+      "id": "cross",
+      "title": "Through the wormhole",
+      "body": "Cross the semantic edge into the other field — the jump no citation chain ever offered. Kinship the graph found by meaning, not by reference.",
+      "op": { "kind": "travel", "to": "W2341983589", "inspect": true },
+      "nextLabel": "Look back →"
+    },
+    {
+      "id": "recap",
+      "title": "Found by exploring",
+      "body": "We started on a 1982 model of memory, followed it through learning and pattern recognition, and a wormhole dropped us somewhere no one was looking: predicting financial collapse. That's the point — you don't search for the surprise, you explore until it finds you.",
+      "op": { "kind": "look" },
+      "nextLabel": "End tour"
+    }
+  ]
+}

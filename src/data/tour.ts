@@ -37,13 +37,16 @@ export type TourOp =
   // Travel the currently-plotted course — fly the highlighted path to its end.
   | { kind: 'travelCourse' }
   // Pull neighbors of `nodeId` along a relationship (e.g. lighting up a
-  // wormhole: rule { relType: 'semantic', limit: 1 }).
-  | { kind: 'expand'; nodeId: string; rule?: ExpandRule }
+  // wormhole: rule { relType: 'semantic', limit: 1 }). `face` turns the gaze
+  // (instantly, behind the doors) toward that node so the reveal is in view when
+  // the doors open — e.g. face the wormhole's far end to look down the conduit.
+  | { kind: 'expand'; nodeId: string; rule?: ExpandRule; face?: string }
   // Bound the view with a reversible client mask (type / pagerank / year / …).
   | { kind: 'filter'; predicate: Predicate }
   // Shortest path from the CURRENT node to `to`; the ship flies the route and
   // (default) folds off-corridor branches. Byways are filled automatically.
-  | { kind: 'travel'; to: string; collapseOffPath?: boolean }
+  // `inspect` opens the destination's details panel on arrival (you're now on it).
+  | { kind: 'travel'; to: string; collapseOffPath?: boolean; inspect?: boolean }
   // Prune `nodeId`'s subtree (BFS-rooted at `fromId`, the current node).
   | { kind: 'collapse'; nodeId: string; fromId: string }
   // No graph change — move/emphasize the camera, or highlight a single edge.
