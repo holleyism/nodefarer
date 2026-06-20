@@ -1,0 +1,59 @@
+{
+  "schemaVersion": 1,
+  "id": "s4-wormhole-plato",
+  "title": "Wormhole: from networks to Plato",
+  "subtitle": "Follow concept learning until a wormhole leaps to philosophy.",
+  "bundle": "bundle.json",
+  "entry": { "mode": "node", "id": "W2127770685", "maxNodes": 40 },
+  "steps": [
+    {
+      "id": "land",
+      "title": "Cognition from connections",
+      "body": "Connectionism: the idea that thinking emerges from networks of simple units, each doing almost nothing alone. \"Parallel Distributed Processing\" is its banner. Let's follow this idea — how a network comes to know things — and see where it leads.",
+      "op": { "kind": "inspect", "id": "W2127770685" },
+      "nextLabel": "Follow the idea →"
+    },
+    {
+      "id": "meaning",
+      "title": "Learning what things mean",
+      "body": "If cognition is a network, where does MEANING come from? We follow a citation to \"Semantic Cognition\" — how such a network gradually comes to represent concepts: what a robin is, how it differs from a rose. Its details open on the left.",
+      "op": { "kind": "travel", "to": "W1488309867", "inspect": true },
+      "nextLabel": "Keep exploring →"
+    },
+    {
+      "id": "acquire",
+      "title": "Acquiring a concept",
+      "body": "Keep going. A 1991 model — \"A modular neural network model of concept acquisition\" — asks how a network LEARNS a new concept at all. We've stayed inside one idea the whole way: how a network comes to know. This is where it gets strange.",
+      "op": { "kind": "travel", "to": "W2112939431", "inspect": true },
+      "nextLabel": "What else connects here? →"
+    },
+    {
+      "id": "wormhole",
+      "title": "Two wormholes",
+      "body": "Not every link is a citation. Two violet conduits bloom from this node — semantic kin in other fields. One reaches another network model of how minds form categories. The other leaps clean out of machine learning. Follow the far one.",
+      "op": { "kind": "expand", "nodeId": "W2112939431", "rule": { "relType": "semantic", "limit": 2 }, "face": "W4252434862" },
+      "nextLabel": "Follow the wormhole →"
+    },
+    {
+      "id": "surprise",
+      "title": "Plato's problem",
+      "body": "The humanities. \"A solution to Plato's problem\" (1997) — latent semantic analysis. It answers a question Plato asked 2,400 years ago: how do we come to know so much from so little? The same idea — meaning learned from patterns of co-occurrence — that a neural network uses to acquire a concept. A model of mind, alive in philosophy, and the citation graph would never have shown you.",
+      "op": { "kind": "inspect", "id": "W4252434862", "focus": true },
+      "nextLabel": "Cross over →"
+    },
+    {
+      "id": "cross",
+      "title": "Through the wormhole",
+      "body": "Cross the semantic edge into the humanities — the jump no citation chain ever offered. Kinship the graph found by meaning, not by reference.",
+      "op": { "kind": "travel", "to": "W4252434862", "inspect": true },
+      "nextLabel": "Look back →"
+    },
+    {
+      "id": "recap",
+      "title": "Found by exploring",
+      "body": "We started on connectionism, followed it through semantic cognition and concept learning, and a wormhole leapt clean out of machine learning into a 2,400-year-old question in philosophy. That's the point — you don't search for the surprise, you explore until it finds you.",
+      "op": { "kind": "look", "focus": "W2112939431" },
+      "nextLabel": "End tour"
+    }
+  ]
+}

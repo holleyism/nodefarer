@@ -92,6 +92,11 @@ const TOURS = [
     title: 'Wormhole: from sequences to the cosmos',
     subtitle: 'Time-series forecasting → gravitational waves',
   },
+  {
+    file: 's4-wormhole-plato.json',
+    title: 'Wormhole: from networks to Plato',
+    subtitle: 'Concept learning → Plato’s problem',
+  },
 ]
 
 export function Hud({
