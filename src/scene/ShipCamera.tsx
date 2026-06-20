@@ -44,7 +44,12 @@ function wrapPi(a: number) {
 // below the ship during flight. This is the default (top-down) parking spot;
 // orbit moves the ship around the node on a sphere of this same radius.
 const EYE = new THREE.Vector3(0, 5, 0)
+// Default parked distance from the node. The scroll wheel dollies this in/out
+// (a true dolly zoom — the ship moves, FOV is left alone) between MIN_R and
+// MAX_R; the chosen distance persists as you travel between nodes.
 const ORBIT_R = EYE.length()
+const MIN_R = 3
+const MAX_R = 600
 const ORBIT_SENS = 0.005
 
 // Reusable basis vectors for the trackball math.
@@ -66,6 +71,21 @@ interface Props {
   targetNode: GraphNode | null
   following: boolean
   followSignal: number
+  // Bumped to snap the ship back to its default stance + gaze (undo any orbit /
+  // look-around), so a scripted step (a tour advance) re-frames cleanly.
+  recenterSignal?: number
+  // When the recenter fires, keep the current dolly zoom (manual travel) instead
+  // of resetting it to default (scripted moves / plotted-course travel).
+  recenterKeepZoom?: boolean
+  // Bumped to auto-frame a freshly plotted course: turn the gaze to look down
+  // the route and dolly out so it fits — always keeping the destination in
+  // frame, even if divergent waypoints fall out. Parked (no travel).
+  frameSignal?: number
+  frameTarget?: {
+    points: [number, number, number][]
+    destination: [number, number, number]
+    zoom?: boolean
+  } | null
   onUnlock: () => void
   onArrive: () => void
 }
@@ -75,7 +95,7 @@ interface Props {
 // leg starts with an auto-aim turn toward the next hop; dragging mid-flight
 // unlocks the camera (the view is then never reset at waypoints) until
 // "follow course" re-engages it.
-export function ShipCamera({ currentNode, targetNode, following, followSignal, onUnlock, onArrive }: Props) {
+export function ShipCamera({ currentNode, targetNode, following, followSignal, recenterSignal = 0, recenterKeepZoom = false, frameSignal = 0, frameTarget = null, onUnlock, onArrive }: Props) {
   const camera = useThree((s) => s.camera) as THREE.PerspectiveCamera
   const gl = useThree((s) => s.gl)
   // Gaze: yaw/pitch *relative to the stance frame* (up = outward normal), so
@@ -86,8 +106,21 @@ export function ShipCamera({ currentNode, targetNode, following, followSignal, o
   // this about the camera's tangent axes (a trackball) — no pole, no gimbal, so
   // it's continuous in every direction. Identity = up is world-up = old EYE.
   const stance = useRef(new THREE.Quaternion())
+  // Dolly distance from the node, driven by the scroll wheel (and pinch). Lives
+  // in a ref so it persists across node-to-node travel and re-anchors.
+  const radius = useRef(ORBIT_R)
+  // An in-progress animated dolly (auto-frame). Wheel/pinch cancels it.
+  const radiusAnim = useRef<{ from: number; to: number; t: number; dur: number } | null>(null)
+  // Off-screen probe camera for the auto-frame fit test (project route points).
+  const probe = useMemo(() => new THREE.PerspectiveCamera(), [])
   const travel = useRef<Travel | null>(null)
   const aim = useRef<Aim | null>(null)
+  // Set the instant a leg finishes (camera sitting at the arrived node's parked
+  // spot) and cleared once the new currentNode prop commits. While set, the
+  // parked branch holds position instead of recomputing from currentRef — which
+  // still points at the PREVIOUS node until React re-renders, and would
+  // otherwise snap the camera back there for a frame (a landing "blink").
+  const justArrived = useRef(false)
   const currentRef = useRef(currentNode)
   currentRef.current = currentNode
   // Per-frame scratch — no allocation in the loop.
@@ -104,11 +137,16 @@ export function ShipCamera({ currentNode, targetNode, following, followSignal, o
   onUnlockRef.current = onUnlock
   const followingRef = useRef(following)
   followingRef.current = following
+  // Mirror so the recenter effect reads the latest value without a reactive dep.
+  const keepZoomRef = useRef(recenterKeepZoom)
+  keepZoomRef.current = recenterKeepZoom
 
   useEffect(() => {
+    // currentNode is now in sync — the just-arrived hold can release.
+    justArrived.current = false
     if (!travel.current) {
-      // Re-anchor at a new node, preserving the current orbit stance.
-      const offset = Y_AXIS.clone().applyQuaternion(stance.current).multiplyScalar(ORBIT_R)
+      // Re-anchor at a new node, preserving the current orbit stance + zoom.
+      const offset = Y_AXIS.clone().applyQuaternion(stance.current).multiplyScalar(radius.current)
       camera.position.set(currentNode.x!, currentNode.y!, currentNode.z!).add(offset)
     }
   }, [currentNode, camera, stance])
@@ -117,6 +155,32 @@ export function ShipCamera({ currentNode, targetNode, following, followSignal, o
   useEffect(() => {
     if (import.meta.env.DEV) (window as unknown as { __ship: typeof shipBus }).__ship = shipBus
   }, [])
+
+  // Recenter: snap the orbit stance + gaze + zoom back to default and re-anchor
+  // the camera over the current node. Declared BEFORE the travel-setup effect so
+  // that when a traversal starts right after a re-frame (both fire in one commit,
+  // e.g. travelling a plotted course), the stance is already normalized — the leg
+  // then takes the clean top-down auto-aim path instead of the keepOrbit path,
+  // which would otherwise set off in the old orbited direction. Parked, this just
+  // re-centers the view on the current node.
+  useEffect(() => {
+    if (recenterSignal === 0) return
+    stance.current.identity()
+    look.current.yaw = 0
+    look.current.pitch = 0
+    aim.current = null
+    // Restore the default dolly distance unless this re-frame keeps the zoom
+    // (manual travel preserves the user's chosen distance; scripted moves and
+    // plotted-course travel reset to the standard viewing zoom).
+    if (!keepZoomRef.current) {
+      radius.current = ORBIT_R
+      radiusAnim.current = null
+    }
+    // Re-anchor over the node now (don't wait for the next parked frame), so a
+    // traversal computed in this same commit starts from the normalized spot.
+    const n = currentRef.current
+    camera.position.set(n.x!, n.y!, n.z!).addScaledVector(Y_AXIS, radius.current)
+  }, [recenterSignal])
 
   useEffect(() => {
     if (!targetNode) return
@@ -127,7 +191,7 @@ export function ShipCamera({ currentNode, targetNode, following, followSignal, o
     // Orbited: keep the same relative orbit on the next node — translate only,
     // no reorientation, so the view doesn't jump. Stance/gaze persist.
     if (Math.abs(stance.current.w) < 0.9999) {
-      const offset = Y_AXIS.clone().applyQuaternion(stance.current).multiplyScalar(ORBIT_R)
+      const offset = Y_AXIS.clone().applyQuaternion(stance.current).multiplyScalar(radius.current)
       const to = targetPos.add(offset)
       travel.current = {
         phase: 'fly',
@@ -146,8 +210,9 @@ export function ShipCamera({ currentNode, targetNode, following, followSignal, o
     }
 
     // Default top-down: auto-aim turn toward the hop, then fly. The stance is
-    // identity here, so look is already the world-frame yaw/pitch.
-    const to = targetPos.add(EYE)
+    // identity here, so look is already the world-frame yaw/pitch. Park at the
+    // current dolly distance above the node, not the fixed default.
+    const to = targetPos.add(Y_AXIS.clone().multiplyScalar(radius.current))
     const face = faceYawPitch(from, to)
     // Aim via the shortest yaw arc from wherever the user left the view.
     const toYaw = look.current.yaw + wrapPi(face.yaw - look.current.yaw)
@@ -188,20 +253,119 @@ export function ShipCamera({ currentNode, targetNode, following, followSignal, o
     }
   }, [followSignal, camera])
 
+  // Auto-frame a plotted course: stay parked on the current node but turn the
+  // gaze down the route and dolly out so the route fits. The destination is
+  // guaranteed in frame; if the route diverges too far to fit everything, we
+  // look straight at the destination and show as much of the rest as we can.
+  useEffect(() => {
+    if (frameSignal === 0 || !frameTarget || travel.current) return
+    const n = currentRef.current
+    const node = new THREE.Vector3(n.x!, n.y!, n.z!)
+    const dest = new THREE.Vector3(frameTarget.destination[0], frameTarget.destination[1], frameTarget.destination[2])
+
+    // zoom === false: only turn the gaze to the destination, keeping the current
+    // stance + dolly distance (e.g. selecting a node on a plotted route — turn to
+    // it without changing the route framing).
+    if (frameTarget.zoom === false) {
+      const camPos = node.clone().add(
+        Y_AXIS.clone().applyQuaternion(stance.current).multiplyScalar(radius.current),
+      )
+      const face = faceYawPitch(camPos, dest)
+      const toYaw = look.current.yaw + wrapPi(face.yaw - look.current.yaw)
+      const angle = Math.hypot(toYaw - look.current.yaw, face.pitch - look.current.pitch)
+      aim.current = {
+        t: 0,
+        fromYaw: look.current.yaw,
+        fromPitch: look.current.pitch,
+        toYaw,
+        toPitch: face.pitch,
+        duration: THREE.MathUtils.clamp(Math.max(angle * 0.5, 0.4), 0.4, 1.0),
+      }
+      return
+    }
+
+    const pts = frameTarget.points.map((p) => new THREE.Vector3(p[0], p[1], p[2]))
+    if (pts.length === 0) pts.push(dest)
+    const center = pts.reduce((a, p) => a.add(p), new THREE.Vector3()).multiplyScalar(1 / pts.length)
+    // Frame top-down (stance identity → camera sits at node + up·R looking down).
+    stance.current.identity()
+    probe.fov = camera.fov
+    probe.aspect = camera.aspect
+    probe.near = camera.near
+    probe.far = camera.far
+    probe.up.set(0, 1, 0)
+    const MARGIN = 0.85
+    const place = (R: number, lookAt: THREE.Vector3) => {
+      probe.position.copy(node).addScaledVector(Y_AXIS, R)
+      probe.lookAt(lookAt)
+      probe.updateMatrixWorld()
+      probe.matrixWorldInverse.copy(probe.matrixWorld).invert()
+      probe.updateProjectionMatrix()
+    }
+    const within = (p: THREE.Vector3) => {
+      const v = p.clone().project(probe)
+      return v.z < 1 && Math.abs(v.x) < MARGIN && Math.abs(v.y) < MARGIN
+    }
+    const STEPS = 28
+    const rAt = (i: number) => MIN_R * Math.pow(MAX_R / MIN_R, i / STEPS)
+    let chosenR = MAX_R
+    let lookAt = dest
+    let fitAll = false
+    for (let i = 0; i <= STEPS; i++) {
+      place(rAt(i), center)
+      if (within(dest) && pts.every(within)) {
+        chosenR = rAt(i)
+        lookAt = center
+        fitAll = true
+        break
+      }
+    }
+    if (!fitAll) {
+      // Destination-guaranteed fallback: look straight at it, pick the zoom that
+      // keeps the most waypoints on screen (smallest R on a tie → closer view).
+      let best = -1
+      for (let i = 0; i <= STEPS; i++) {
+        place(rAt(i), dest)
+        const count = pts.filter(within).length
+        if (count > best) {
+          best = count
+          chosenR = rAt(i)
+        }
+      }
+      lookAt = dest
+    }
+    // Animate the dolly out and the turn toward the route.
+    radiusAnim.current = { from: radius.current, to: chosenR, t: 0, dur: 0.7 }
+    const finalPos = node.clone().addScaledVector(Y_AXIS, chosenR)
+    const face = faceYawPitch(finalPos, lookAt)
+    const toYaw = look.current.yaw + wrapPi(face.yaw - look.current.yaw)
+    const angle = Math.hypot(toYaw - look.current.yaw, face.pitch - look.current.pitch)
+    aim.current = {
+      t: 0,
+      fromYaw: look.current.yaw,
+      fromPitch: look.current.pitch,
+      toYaw,
+      toPitch: face.pitch,
+      duration: THREE.MathUtils.clamp(Math.max(angle * 0.5, 0.5), 0.5, 1.2),
+    }
+  }, [frameSignal, frameTarget]) // eslint-disable-line react-hooks/exhaustive-deps
+
   useEffect(() => {
     const el = gl.domElement
     // Active pressed pointers by id → last screen position. One pointer =
-    // look; two pointers = pinch-zoom the FOV (the touch equivalent of the
-    // mouse wheel).
+    // look; two pointers = pinch-dolly the ship in/out (the touch equivalent
+    // of the mouse wheel).
     const pointers = new Map<number, { x: number; y: number }>()
-    let pinch: { startDist: number; startFov: number } | null = null
+    let pinch: { startDist: number; startRadius: number } | null = null
     // Whether the active mouse drag is an orbit (right-button, or Shift+left).
     // Decided at pointerdown and held for the duration of the drag.
     let orbitMode = false
 
-    const setFov = (fov: number) => {
-      camera.fov = THREE.MathUtils.clamp(fov, 25, 80)
-      camera.updateProjectionMatrix()
+    // Multiplicative dolly so each notch feels even across the 3–600 range.
+    // A manual zoom cancels any in-progress auto-frame animation.
+    const dolly = (factor: number) => {
+      radiusAnim.current = null
+      radius.current = THREE.MathUtils.clamp(radius.current * factor, MIN_R, MAX_R)
     }
     const pinchDist = () => {
       const [a, b] = [...pointers.values()]
@@ -243,7 +407,7 @@ export function ShipCamera({ currentNode, targetNode, following, followSignal, o
       }
       pointers.set(e.pointerId, { x: e.clientX, y: e.clientY })
       if (pointers.size === 2) {
-        pinch = { startDist: pinchDist(), startFov: camera.fov }
+        pinch = { startDist: pinchDist(), startRadius: radius.current }
         lastCentroid = centroid()
       }
     }
@@ -255,9 +419,17 @@ export function ShipCamera({ currentNode, targetNode, following, followSignal, o
       prev.x = e.clientX
       prev.y = e.clientY
 
-      // Two fingers: pinch-distance zooms the FOV; centroid drag orbits.
+      // Two fingers: pinch-distance dollies the ship; centroid drag orbits.
+      // Fingers apart → smaller radius (closer), matching pinch-to-zoom-in.
       if (pointers.size >= 2) {
-        if (pinch) setFov(pinch.startFov * (pinch.startDist / (pinchDist() || 1)))
+        if (pinch) {
+          radiusAnim.current = null
+          radius.current = THREE.MathUtils.clamp(
+            pinch.startRadius * (pinch.startDist / (pinchDist() || 1)),
+            MIN_R,
+            MAX_R,
+          )
+        }
         const c = centroid()
         if (lastCentroid) applyOrbit(c.x - lastCentroid.x, c.y - lastCentroid.y)
         lastCentroid = c
@@ -291,7 +463,9 @@ export function ShipCamera({ currentNode, targetNode, following, followSignal, o
     }
     const onWheel = (e: WheelEvent) => {
       e.preventDefault()
-      setFov(camera.fov + e.deltaY * 0.03)
+      // Scroll out (positive deltaY) dollies away to frame the whole graph;
+      // scroll in pulls up close to inspect a node. Exponential = even feel.
+      dolly(Math.exp(e.deltaY * 0.0015))
     }
     // Right-drag orbits, so the right-click menu must not pop on release.
     const onContextMenu = (e: Event) => e.preventDefault()
@@ -313,6 +487,13 @@ export function ShipCamera({ currentNode, targetNode, following, followSignal, o
   }, [gl, camera])
 
   useFrame((_, delta) => {
+    // Animated dolly (auto-frame): ease the parked distance toward its target.
+    const ra = radiusAnim.current
+    if (ra) {
+      ra.t = Math.min(1, ra.t + delta / ra.dur)
+      radius.current = ra.from + (ra.to - ra.from) * smoothstep(ra.t)
+      if (ra.t >= 1) radiusAnim.current = null
+    }
     const tr = travel.current
     if (tr) {
       if (tr.phase === 'turn') {
@@ -329,15 +510,18 @@ export function ShipCamera({ currentNode, targetNode, following, followSignal, o
         camera.position.lerpVectors(tr.from, tr.to, smoothstep(tr.t))
         if (tr.t >= 1) {
           travel.current = null
+          // Hold position here until currentNode catches up (see justArrived).
+          justArrived.current = true
           onArriveRef.current()
         }
       }
-    } else {
+    } else if (!justArrived.current) {
       // Parked: position = node + outward normal · radius (the stance's up axis),
-      // so an orbit drag takes effect live.
+      // so an orbit drag takes effect live. Skipped during the just-arrived gap,
+      // when currentRef still points at the previous node.
       const n = currentRef.current
       nodePos.set(n.x!, n.y!, n.z!)
-      v1.copy(Y_AXIS).applyQuaternion(stance.current).multiplyScalar(ORBIT_R)
+      v1.copy(Y_AXIS).applyQuaternion(stance.current).multiplyScalar(radius.current)
       camera.position.copy(nodePos).add(v1)
     }
     const am = aim.current

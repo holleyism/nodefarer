@@ -266,6 +266,27 @@ export function corridorView(
   })
 }
 
+// The egocentric landing view: keep ONLY the travelled corridor plus the current
+// node's immediate (1-hop) neighbourhood — everything else (earlier stops'
+// ego-nets, off-corridor branches) is dropped. Unlike corridorView's reversible
+// render mask, this rebuilds the working view itself, so arriving on a node
+// leaves you with exactly "the nodes you travelled on + the adjacent nodes to
+// the destination" and nothing more.
+export function egoView(view: View, currentId: string): View {
+  const keep = new Set<string>([...view.corridor, currentId])
+  for (const nb of view.neighbors.get(currentId) ?? []) keep.add(nb)
+  const nodes = view.nodes.filter((n) => keep.has(n.id))
+  const ids = new Set(nodes.map((n) => n.id))
+  const edges = view.edges.filter((e) => ids.has(e.source) && ids.has(e.target))
+  const addedBy = new Map([...view.addedBy].filter(([id]) => ids.has(id)))
+  return assembleView(nodes, edges, {
+    anchorId: view.anchorId,
+    corridor: view.corridor.filter((id) => ids.has(id)),
+    addedBy,
+    bounds: view.bounds,
+  })
+}
+
 // Render-time declutter: keep each node's top-`budget` structural edges (ranked
 // by the other endpoint's PageRank); wormholes always pass. An edge shows only
 // if it's within BOTH endpoints' budget (mutual top-N) — so a hub collapses to
@@ -299,8 +320,16 @@ export function budgetView(
   const edges: GraphEdge[] = []
   for (const e of view.edges) {
     if (hidden.has(e.id)) continue
-    // Global per-kind toggle — the active travel lane is exempt so it stays lit.
-    if (!exempt.has(e.id) && !(e.kind === 'semantic' ? kinds.wormholes : kinds.edges)) continue
+    // The active travel lane / plotted course is always shown — it bypasses BOTH
+    // the per-kind toggle AND the budget clip, so a course is never broken up by
+    // an edge falling outside a hub's top-N. (Without this, only the per-kind
+    // toggle was bypassed and a plotted path through a hub would lose edges.)
+    if (exempt.has(e.id)) {
+      visibleEdgeIds.add(e.id)
+      edges.push(e)
+      continue
+    }
+    if (!(e.kind === 'semantic' ? kinds.wormholes : kinds.edges)) continue
     if (shown.has(e.id) || passes(e)) {
       visibleEdgeIds.add(e.id)
       edges.push(e)

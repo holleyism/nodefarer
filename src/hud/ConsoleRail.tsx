@@ -22,9 +22,16 @@ interface Props {
   items: RailItem[]
   openId: string | null
   onOpenChange: (id: string | null) => void
+  // Dim + disable the whole rail (e.g. while a guided tour drives the view, so
+  // manual panels can't desync the narration).
+  locked?: boolean
+  // When locked, this one panel stays full-opacity and readable (but still
+  // inert) instead of dimming with the rest — the inspector a tour opens, so the
+  // viewer can read the node it's narrating without being able to click through.
+  readOnlyId?: string | null
 }
 
-export function ConsoleRail({ items, openId, onOpenChange }: Props) {
+export function ConsoleRail({ items, openId, onOpenChange, locked = false, readOnlyId = null }: Props) {
   return (
     <Box
       sx={{
@@ -37,21 +44,34 @@ export function ConsoleRail({ items, openId, onOpenChange }: Props) {
         zIndex: PANEL_Z,
       }}
     >
-      {items.map((it) => (
-        <DeployPanel
-          key={it.id}
-          icon={it.icon}
-          title={it.title}
-          width={it.width}
-          contentKey={it.contentKey ?? it.id}
-          open={openId === it.id}
-          onToggle={() => onOpenChange(openId === it.id ? null : it.id)}
-        >
-          {typeof it.content === 'function'
-            ? it.content({ close: () => onOpenChange(null) })
-            : it.content}
-        </DeployPanel>
-      ))}
+      {items.map((it) => {
+        // Locked: everything is inert; the readOnly panel stays bright, the rest dim.
+        const dimmed = locked && it.id !== readOnlyId
+        return (
+          <Box
+            key={it.id}
+            aria-hidden={dimmed || undefined}
+            sx={{
+              opacity: dimmed ? 0.3 : 1,
+              pointerEvents: locked ? 'none' : 'auto',
+              transition: 'opacity 220ms ease',
+            }}
+          >
+            <DeployPanel
+              icon={it.icon}
+              title={it.title}
+              width={it.width}
+              contentKey={it.contentKey ?? it.id}
+              open={openId === it.id}
+              onToggle={() => onOpenChange(openId === it.id ? null : it.id)}
+            >
+              {typeof it.content === 'function'
+                ? it.content({ close: () => onOpenChange(null) })
+                : it.content}
+            </DeployPanel>
+          </Box>
+        )
+      })}
     </Box>
   )
 }

@@ -7,16 +7,34 @@ import { StaticBundleSource } from './data/StaticBundleSource'
 import { ApiSource } from './data/ApiSource'
 import { budgetView, corridorView, filterView } from './data/viewBuilder'
 import type { EdgeSortKey } from './data/edgeSort'
-import type { GraphSource, Predicate, View } from './data/GraphSource'
+import type { EntryMode, ExpandRule, GraphSource, Predicate, View } from './data/GraphSource'
 import type { GraphSchema } from './data/graphSchema'
 import type { Bundle } from './data/bundle'
+import type { Tour, TourOp } from './data/tour'
 import { shortestPath } from './data/shortestPath'
 import { runForceLayout } from './layout/runForceLayout'
 import { GraphScene } from './scene/GraphScene'
 import { Hud } from './hud/Hud'
 import { MessageToast, type AppMessage } from './hud/MessageToast'
+import { TourPanel } from './hud/TourPanel'
+import { useTour, type TourExecutor } from './hud/useTour'
 
 const BUNDLE_URL = '/bundle.json'
+
+// The exploration state captured at a tour step boundary, restored on Back.
+interface SnapState {
+  view: View
+  currentId: string
+  trail: string[]
+  selectedId: string | null
+  predicate: Predicate
+  autoCollapse: boolean
+  shownEdgeIds: Set<string>
+  hiddenEdgeIds: Set<string>
+  showEdges: boolean
+  showWormholes: boolean
+  plottedRoute: string[]
+}
 
 export default function App() {
   const sourceRef = useRef<GraphSource | null>(null)
@@ -56,12 +74,33 @@ export default function App() {
   // Bound-the-view filter: a reversible client mask over the working view
   // (node type / pagerank / year). Empty = no filter.
   const [predicate, setPredicate] = useState<Predicate>({})
-  // Auto-collapse "paths not taken": fold off-corridor branches when parked.
+  // Auto-collapse "paths not taken": an optional reversible render mask that
+  // folds off-corridor branches when parked. Off by default — a power-user toggle.
   const [autoCollapse, setAutoCollapse] = useState(false)
   // Whether the camera is locked to the course while traveling. Dragging
   // mid-flight unlocks it; "follow course" (or journey's end) re-locks.
   const [following, setFollowing] = useState(true)
   const [followSignal, setFollowSignal] = useState(0)
+  // Bumped to re-frame the ship (undo orbit / look-around) on a scripted step.
+  const [recenterSignal, setRecenterSignal] = useState(0)
+  // Whether the paired recenter keeps the current dolly zoom (manual travel) or
+  // resets it to default (scripted moves / plotted-course travel).
+  const [recenterKeepZoom, setRecenterKeepZoom] = useState(false)
+  // A plotted-but-not-yet-travelled course: the ordered node ids of the
+  // shortest path from the current node to a searched target (inclusive of
+  // both ends). Empty = no course plotted. The route + its edges render as a
+  // distinct "route" emphasis (see scene/RouteHighlight); the scanner shifts to
+  // a describe/Travel view while it's set. Travelling or clearing empties it.
+  const [plottedRoute, setPlottedRoute] = useState<string[]>([])
+  // Bumped to auto-frame a freshly plotted course (turn + dolly so the route
+  // fits, always including the destination). Carries the route world points.
+  const [frameSignal, setFrameSignal] = useState(0)
+  const [frameTarget, setFrameTarget] = useState<{
+    points: [number, number, number][]
+    destination: [number, number, number]
+    // false → only turn the gaze to the destination, keep the current zoom.
+    zoom?: boolean
+  } | null>(null)
   // Blast doors: shut the window while the universe is being (re)laid out.
   const [doorsClosed, setDoorsClosed] = useState(false)
   // Bottom-left status/error readout.
@@ -69,6 +108,44 @@ export default function App() {
   const msgId = useRef(0)
   const notify = (text: string, level: 'error' | 'info' = 'info') =>
     setMessage({ id: ++msgId.current, text, level })
+
+  // Tour playback plumbing. The tour engine drives the same handlers manual
+  // navigation uses; these refs let an op resolve its promise only once its
+  // effect has committed (a post-commit frame), and gate manual travel/jump
+  // while a tour is playing so the user can't desync the narration.
+  const tourActiveRef = useRef(false)
+  const travelDoneRef = useRef<(() => void) | null>(null)
+  const opDoneRef = useRef<(() => void) | null>(null)
+  const plotDoneRef = useRef<(() => void) | null>(null)
+  // Set on arrival once parked (route empties), to settle a pending tour travel.
+  const revealPendingRef = useRef<string | null>(null)
+  // Latest committed exploration state, for Back snapshots (assigned in the
+  // render body below so a capture taken after an op reflects the applied view).
+  const snapStateRef = useRef<SnapState | null>(null)
+  // Resolve on the second animation frame so the committed render (and the
+  // render-body refs below) reflect the applied state before the tour reads it.
+  const settleNext = (ref: { current: (() => void) | null }) => {
+    const done = ref.current
+    ref.current = null
+    if (done) requestAnimationFrame(() => requestAnimationFrame(done))
+  }
+  // Keep the snapshot source current every render (post-commit the awaited op
+  // promise resolves, so this holds the applied state when snapshot() reads it).
+  if (view && currentId) {
+    snapStateRef.current = {
+      view,
+      currentId,
+      trail,
+      selectedId,
+      predicate,
+      autoCollapse,
+      shownEdgeIds,
+      hiddenEdgeIds,
+      showEdges,
+      showWormholes,
+      plottedRoute,
+    }
+  }
 
   // Pick the data source and land on an entry view. VITE_API_URL → live
   // ApiSource (Go/Neo4j); otherwise the static bundle (served, else synthetic).
@@ -135,13 +212,25 @@ export default function App() {
     setHoveredEdgeId(null)
   }
   const handleSelect = (id: string) => {
-    if (traveling) return
+    // Inspecting is suppressed while a tour drives the view (the rail — including
+    // the inspector — is locked); look-around stays free.
+    if (traveling || tourActiveRef.current) return
     setSelectedId(id)
     clearEdges()
   }
   const handleTogglePin = (id: string) =>
     setPinnedEdgeIds((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id]))
+  // Manual travel is suppressed while a tour plays (the tour drives travel
+  // itself via travelTo); this keeps the on-screen journey in lockstep with the
+  // narration the user is reading.
   const handleTravel = (id: string) => {
+    if (tourActiveRef.current) return
+    // Normalize the orbit + gaze before a manual traversal (so the first hop
+    // doesn't fly off in the orbited direction), but keep the user's dolly zoom.
+    reframeForMove(true)
+    handleTravelCore(id)
+  }
+  const handleTravelCore = (id: string) => {
     if (!view || !currentId || traveling || id === currentId) return
     const s = sourceRef.current
     if (!s) return
@@ -182,6 +271,82 @@ export default function App() {
       setRoute(path.slice(1))
     })()
   }
+  // The edge ids along a path (consecutive hops), looked up in a view's incidence.
+  const pathEdgeIds = (v: View, path: string[]) => {
+    const ids = new Set<string>()
+    for (let i = 0; i < path.length - 1; i++) {
+      const e = (v.incident.get(path[i]) ?? []).find(
+        (ed) => ed.source === path[i + 1] || ed.target === path[i + 1],
+      )
+      if (e) ids.add(e.id)
+    }
+    return ids
+  }
+  // Plot a course: compute the shortest path from the current node to `id`,
+  // bring its nodes into the view, and highlight the route as a distinct "route"
+  // emphasis — WITHOUT flying. Then auto-frame so the whole route reads (always
+  // including the destination). Travelling/clearing is a separate, deliberate
+  // step (the scanner shifts to a describe/Travel view). See handleTravelCourse.
+  const handlePlotCourse = (id: string) => {
+    if (!view || !currentId || traveling || id === currentId) return
+    const s = sourceRef.current
+    if (!s) return
+    const from = currentId
+    ;(async () => {
+      let result = null as Awaited<ReturnType<GraphSource['path']>>
+      try {
+        result = await s.path(view, from, id)
+      } catch {
+        result = null
+      }
+      let nextView = view
+      let path: string[]
+      if (result && result.route.length > 1) {
+        nextView = result.view
+        path = result.route
+        if (nextView.nodes.length > view.nodes.length) runForceLayout(nextView, { pin: true })
+      } else {
+        const local = shortestPath(view, from, id)
+        path = local ?? [from, id]
+      }
+      if (nextView !== view) setView(nextView)
+      setSelectedId(null)
+      clearEdges()
+      setPlottedRoute(path)
+      // Auto-frame the route ahead (exclude the current node — the ship's parked
+      // on it). Turn + dolly to fit, destination guaranteed.
+      const pts = path
+        .slice(1)
+        .map((pid) => nextView.nodeById.get(pid))
+        .filter((n): n is NonNullable<typeof n> => n != null && n.x != null)
+        .map((n) => [n.x!, n.y!, n.z!] as [number, number, number])
+      const dest = nextView.nodeById.get(path[path.length - 1])
+      if (dest && dest.x != null) {
+        setFrameTarget({ points: pts, destination: [dest.x!, dest.y!, dest.z!] })
+        setFrameSignal((f) => f + 1)
+      }
+      // Settle any pending tour `plot` op once the course has been applied.
+      settleNext(plotDoneRef)
+    })()
+  }
+  // Travel a plotted course: light its corridor and fly it (re-framing the ship
+  // to its default stance + zoom for the journey). The plotted route stays set
+  // so it remains highlighted for the whole flight — it clears on arrival
+  // (handleArrive). The scanner drops out of course mode meanwhile (it keys off
+  // `traveling`), so there's no stale Travel button mid-flight.
+  const handleTravelCourse = () => {
+    if (!view || traveling || plottedRoute.length < 2) return
+    const path = plottedRoute
+    setShownEdgeIds((prev) => new Set([...prev, ...pathEdgeIds(view, path)]))
+    setFrameTarget(null)
+    reframeForMove()
+    setRoute(path.slice(1))
+  }
+  // Drop a plotted course (back to search) without travelling.
+  const handleClearCourse = () => {
+    setPlottedRoute([])
+    setFrameTarget(null)
+  }
   const handleSetEdgeVisible = (id: string, visible: boolean) => {
     setShownEdgeIds((s) => {
       const n = new Set(s)
@@ -202,11 +367,17 @@ export default function App() {
     // Journey over: re-lock the camera and record the stop on the trail.
     if (route.length === 1) {
       setFollowing(true)
+      // Travel complete — drop any plotted-course highlight now (it was kept lit
+      // for the whole flight).
+      setPlottedRoute([])
       // Forward → append; back to an earlier stop → rewind (truncate) to it.
       setTrail((t) => {
         const idx = t.indexOf(arrived)
         return idx >= 0 ? t.slice(0, idx + 1) : [...t, arrived]
       })
+      // Defer the tour-travel settle until we've actually parked (route empties),
+      // so it doesn't race the in-flight guards.
+      revealPendingRef.current = arrived
     }
   }
   const handleFollow = () => {
@@ -228,6 +399,9 @@ export default function App() {
     doorsShutRef.current = false
     apply() // swap the view (+ related state) while fully covered
     setDoorsClosed(false) // reveal the settled scene
+    // A tour op routed through the doors (expand/collapse/land/restore) resolves
+    // here, after its view has been applied and the doors reopen.
+    settleNext(opDoneRef)
   }
   const handleDoorsClosed = () => {
     doorsShutRef.current = true
@@ -277,7 +451,7 @@ export default function App() {
       runForceLayout(nv, { pin: true })
       return () => setView(nv)
     })
-  const handleExpand = (id: string) => reView((s, v) => s.expand(v, id))
+  const handleExpand = (id: string, rule?: ExpandRule) => reView((s, v) => s.expand(v, id, rule))
   const handleCollapse = (id: string) =>
     reView((s, v) => s.collapse(v, id, currentId ?? v.anchorId))
 
@@ -286,11 +460,12 @@ export default function App() {
     (q: string) => sourceRef.current?.search(q, 'text') ?? Promise.resolve([]),
     [],
   )
-  // Land on a search hit: a fresh entry re-anchors the ego-net on that node
-  // (full relayout behind the doors), resetting the journey + overrides.
-  const handleJump = (id: string) =>
-    behindDoors(async (s) => {
-      const nv = await s.entry({ mode: 'node', id })
+  // Re-anchor the ego-net on a node via a fresh entry (full relayout behind the
+  // doors), resetting the journey + overrides. Returns a promise so the tour can
+  // await the landing; used both by search-jump and by a tour's entry/land op.
+  const resetTo = (entry: EntryMode) =>
+    behindDoorsAsync(async (s) => {
+      const nv = await s.entry(entry)
       runForceLayout(nv)
       return () => {
         setView(nv)
@@ -303,6 +478,191 @@ export default function App() {
         setHiddenEdgeIds(new Set())
       }
     })
+  // Land on a search hit (suppressed while a tour drives the view).
+  const handleJump = (id: string) => {
+    if (tourActiveRef.current) return
+    resetTo({ mode: 'node', id })
+  }
+
+  // ── Tour playback ──────────────────────────────────────────────────────────
+  // Promise wrappers around the existing async primitives so the tour engine can
+  // await each op. They resolve via the resolver refs (settleNext), on a
+  // post-commit frame, so a step's snapshot reads the applied state.
+  const nextFrame = () =>
+    new Promise<void>((resolve) =>
+      requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+    )
+  const behindDoorsAsync = (prepare: (s: GraphSource, v: View) => Promise<() => void>) =>
+    new Promise<void>((resolve) => {
+      // Mirror behindDoors' own guards: if it can't run, don't hang the tour.
+      if (!sourceRef.current || !view || traveling) {
+        resolve()
+        return
+      }
+      opDoneRef.current = resolve
+      behindDoors(prepare)
+    })
+  // Landing: just park on the arrived node. No blast doors, no view rebuild, no
+  // auto-expansion — the ship flies in and parks, keeping the view as it is.
+  // Once parked (route empty), settle any pending tour travelTo so the next step
+  // sees the settled destination.
+  useEffect(() => {
+    if (traveling) return
+    const id = revealPendingRef.current
+    if (!id) return
+    revealPendingRef.current = null
+    settleNext(travelDoneRef)
+  }, [traveling]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const travelTo = (id: string) =>
+    new Promise<void>((resolve) => {
+      if (!view || !currentId || id === currentId) {
+        resolve()
+        return
+      }
+      travelDoneRef.current = resolve
+      handleTravelCore(id)
+    })
+  // Plot a course (reveal + highlight + frame, no travel); resolves once applied.
+  const plotCourseTo = (id: string) =>
+    new Promise<void>((resolve) => {
+      if (!view || !currentId || traveling || id === currentId) {
+        resolve()
+        return
+      }
+      plotDoneRef.current = resolve
+      handlePlotCourse(id)
+    })
+  // Fly the currently-plotted course; resolves on arrival (via the parked settle).
+  const travelCourse = () =>
+    new Promise<void>((resolve) => {
+      if (!view || plottedRoute.length < 2) {
+        resolve()
+        return
+      }
+      travelDoneRef.current = resolve
+      handleTravelCourse()
+    })
+
+  // Apply one tour step op to the working view. Each branch maps onto the same
+  // GraphSource call manual navigation uses (`look` is camera/edge-only).
+  // Re-lock the course and snap the orbit/gaze back to default — only for ops
+  // that MOVE the ship (travel/land). Parked ops (filter/expand/look) preserve
+  // the current view, so a step like the recap doesn't yank the camera around.
+  // keepZoom: preserve the current dolly distance (manual travel) rather than
+  // resetting to default (scripted moves / plotted-course travel).
+  const reframeForMove = (keepZoom = false) => {
+    setFollowing(true)
+    setRecenterKeepZoom(keepZoom)
+    setRecenterSignal((r) => r + 1)
+  }
+  const runOp = (op: TourOp): Promise<void> => {
+    switch (op.kind) {
+      case 'land':
+        reframeForMove()
+        return resetTo({ mode: 'node', id: op.id, maxNodes: op.maxNodes })
+      case 'inspect': {
+        // Open the details panel on the node (the ship doesn't move). The rail
+        // renders it read-only while the tour drives the view. `focus` also
+        // turns + zooms the camera to frame the ship→node segment.
+        setSelectedId(op.id)
+        clearEdges()
+        if (op.focus && view && currentId) {
+          const tn = view.nodeById.get(op.id)
+          const cn = view.nodeById.get(currentId)
+          if (tn?.x != null && cn?.x != null) {
+            // Turn to face the node but DON'T zoom (keep the plotted-route framing).
+            setFrameTarget({
+              points: [
+                [cn.x!, cn.y!, cn.z!],
+                [tn.x!, tn.y!, tn.z!],
+              ],
+              destination: [tn.x!, tn.y!, tn.z!],
+              zoom: false,
+            })
+            setFrameSignal((f) => f + 1)
+          }
+        }
+        return nextFrame()
+      }
+      case 'plot':
+        return plotCourseTo(op.to)
+      case 'travelCourse':
+        return travelCourse()
+      case 'filter':
+        setPredicate(op.predicate)
+        return nextFrame()
+      case 'expand':
+        return behindDoorsAsync(async (s, v) => {
+          const nv = await s.expand(v, op.nodeId, op.rule)
+          runForceLayout(nv, { pin: true })
+          return () => setView(nv)
+        })
+      case 'collapse':
+        return behindDoorsAsync(async (s, v) => {
+          const nv = await s.collapse(v, op.nodeId, op.fromId)
+          runForceLayout(nv, { pin: true })
+          return () => setView(nv)
+        })
+      case 'travel':
+        reframeForMove()
+        if (op.collapseOffPath) setAutoCollapse(true)
+        return travelTo(op.to)
+      case 'look': {
+        if (op.edge && view) {
+          const e = (view.incident.get(op.edge.from) ?? []).find(
+            (ed) =>
+              (ed.source === op.edge!.from && ed.target === op.edge!.to) ||
+              (ed.source === op.edge!.to && ed.target === op.edge!.from),
+          )
+          if (e) setShownEdgeIds((s) => new Set(s).add(e.id))
+        }
+        return nextFrame()
+      }
+      default:
+        return Promise.resolve()
+    }
+  }
+
+  // Full exploration state at a step boundary. Snapshotting view references is
+  // safe: pinned relayouts never move already-placed nodes, so an earlier view
+  // still renders correctly when restored. Read from a render-body ref so the
+  // capture reflects the latest committed state (see snapStateRef below).
+  const snapshot = (): unknown => ({ ...snapStateRef.current })
+  const restore = (raw: unknown) => {
+    const snap = raw as SnapState
+    return behindDoorsAsync(async () => () => {
+      setView(snap.view)
+      setCurrentId(snap.currentId)
+      setTrail(snap.trail)
+      setRoute([])
+      setSelectedId(snap.selectedId)
+      setPredicate(snap.predicate)
+      setAutoCollapse(snap.autoCollapse)
+      setShownEdgeIds(snap.shownEdgeIds)
+      setHiddenEdgeIds(snap.hiddenEdgeIds)
+      setShowEdges(snap.showEdges)
+      setShowWormholes(snap.showWormholes)
+      setPlottedRoute(snap.plottedRoute ?? [])
+      clearEdges()
+    })
+  }
+  const tourExec: TourExecutor = { reset: resetTo, runOp, snapshot, restore }
+  const tour = useTour(tourExec)
+  tourActiveRef.current = tour.tour !== null
+
+  // Start a tour: fetch its definition, then hand it to the engine.
+  const handleStartTour = (file: string) => {
+    fetch(`/tours/${file}`)
+      .then((r) => {
+        if (!r.ok) throw new Error(`tour ${r.status}`)
+        return r.json() as Promise<Tour>
+      })
+      .then((t) => tour.start(t))
+      .catch((err) =>
+        notify(`Couldn't load tour: ${err instanceof Error ? err.message : String(err)}`, 'error'),
+      )
+  }
 
   // Dev-only handle for the headless smoke test (scripts/smoke.mjs).
   useEffect(() => {
@@ -326,11 +686,12 @@ export default function App() {
     if (currentId) specials.add(currentId)
     if (selectedId) specials.add(selectedId)
     for (const id of route) specials.add(id)
-    // The active travel lane: edges between consecutive nodes of [current, …route].
-    // These ignore the per-kind toggle so the course is visible while in flight.
+    for (const id of plottedRoute) specials.add(id)
+    // The active travel lane: edges between consecutive nodes of [current, …route],
+    // plus a plotted-but-not-yet-travelled course. These ignore the per-kind
+    // toggle and the budget clip so the course is visible (in flight or plotted).
     const lane = new Set<string>()
-    if (currentId && route.length) {
-      const path = [currentId, ...route]
+    const addLane = (path: string[]) => {
       for (let i = 0; i < path.length - 1; i++) {
         const e = (view.incident.get(path[i]) ?? []).find(
           (ed) => ed.source === path[i + 1] || ed.target === path[i + 1],
@@ -338,6 +699,8 @@ export default function App() {
         if (e) lane.add(e.id)
       }
     }
+    if (currentId && route.length) addLane([currentId, ...route])
+    if (plottedRoute.length > 1) addLane(plottedRoute)
     // Bound the view first (reversible mask; current/selected always kept), then
     // declutter what survives.
     const has = (o?: Record<string, unknown>) => o != null && Object.keys(o).length > 0
@@ -349,6 +712,11 @@ export default function App() {
       has(predicate.edgeNum) ||
       has(predicate.edgeCat)
     const keep = new Set([currentId, selectedId].filter(Boolean) as string[])
+    // The active travel course — and any plotted course — are always kept through
+    // the filter, so a hop's destination (and its lit lane) never vanishes under
+    // a bound mid-flight or while a course sits plotted.
+    for (const id of route) keep.add(id)
+    for (const id of plottedRoute) keep.add(id)
     let base = active ? filterView(view, predicate, keep) : view
     // Fold off-corridor branches once parked (never mid-flight, so nothing
     // vanishes under the ship while travelling).
@@ -359,7 +727,7 @@ export default function App() {
       edges: showEdges,
       wormholes: showWormholes,
     }, lane)
-  }, [view, edgeBudget, edgeSort, shownEdgeIds, hiddenEdgeIds, showEdges, showWormholes, predicate, autoCollapse, traveling, trail, currentId, selectedId, route])
+  }, [view, edgeBudget, edgeSort, shownEdgeIds, hiddenEdgeIds, showEdges, showWormholes, predicate, autoCollapse, traveling, trail, currentId, selectedId, route, plottedRoute])
 
   if (!view || !currentId || !display) {
     return (
@@ -382,6 +750,13 @@ export default function App() {
   // still get the full `view` so the Links list shows every edge.
   const displayGraph = display.display
   const visibleEdgeIds = display.visibleEdgeIds
+  // The plotted course as a "route" emphasis — its nodes + connecting edges,
+  // rendered with a distinct route skin (see scene/RouteHighlight). A general
+  // emphasis shape so neighbourhood "nebula" highlights can reuse it later.
+  const routeEmphasis =
+    plottedRoute.length > 1
+      ? { kind: 'route' as const, nodeIds: plottedRoute, edgeIds: [...pathEdgeIds(view, plottedRoute)] }
+      : null
 
   // Locks stay live in flight, with the destination always held; parked,
   // the inspected node keeps its reticle even when it falls outside the
@@ -441,8 +816,13 @@ export default function App() {
           hoveredEdgeId={doorsClosed ? null : hoveredEdgeId}
           maxTags={maxTags}
           selectionPaused={viewMode !== 'proximity' || doorsClosed}
+          emphasis={routeEmphasis}
           following={following}
           followSignal={followSignal}
+          recenterSignal={recenterSignal}
+          recenterKeepZoom={recenterKeepZoom}
+          frameSignal={frameSignal}
+          frameTarget={frameTarget}
           onUnlock={() => setFollowing(false)}
           onTaggedChange={setTaggedIds}
           onSelect={handleSelect}
@@ -491,6 +871,21 @@ export default function App() {
         onClosePanel={() => setSelectedId(null)}
         onSearch={handleSearch}
         onJump={handleJump}
+        plottedRoute={plottedRoute}
+        onPlotCourse={handlePlotCourse}
+        onTravelCourse={handleTravelCourse}
+        onClearCourse={handleClearCourse}
+        onStartTour={handleStartTour}
+        tourActive={tour.tour !== null}
+      />
+      <TourPanel
+        step={tour.tour ? tour.tour.steps[tour.index] : null}
+        index={tour.index}
+        total={tour.tour?.steps.length ?? 0}
+        busy={tour.busy}
+        onNext={tour.next}
+        onBack={tour.back}
+        onQuit={tour.quit}
       />
       <MessageToast message={message} onDismiss={() => setMessage(null)} />
     </Box>

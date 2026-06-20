@@ -6,6 +6,7 @@ import { BlastDoors } from './BlastDoors'
 import { BottomBar } from './BottomBar'
 import { Breadcrumbs } from './Breadcrumbs'
 import { ConsoleRail, type RailItem } from './ConsoleRail'
+import { CoursePanel } from './CoursePanel'
 import { CurrentNodeContent } from './CurrentNodeContent'
 import { FilterPanel } from './FilterPanel'
 import { PANEL_SX } from './hudStyles'
@@ -63,7 +64,25 @@ interface Props {
   onClosePanel: () => void
   onSearch: (query: string) => Promise<Candidate[]>
   onJump: (id: string) => void
+  // A plotted-but-not-yet-travelled course (ordered node ids, current first).
+  // Empty = none; when set, the scanner shifts to its course (describe/Travel) view.
+  plottedRoute: string[]
+  onPlotCourse: (id: string) => void
+  onTravelCourse: () => void
+  onClearCourse: () => void
+  onStartTour: (file: string) => void
+  tourActive: boolean
 }
+
+// Guided tours shipped with the demo bundle. Each plays over the canned bundle
+// via the same exploration engine as manual navigation (see src/data/tour.ts).
+const TOURS = [
+  {
+    file: 's1-idea-genealogy.json',
+    title: 'Idea genealogy & diffusion',
+    subtitle: 'Hopfield 1982 → modern attention',
+  },
+]
 
 export function Hud({
   graph,
@@ -106,6 +125,12 @@ export function Hud({
   onClosePanel,
   onSearch,
   onJump,
+  plottedRoute,
+  onPlotCourse,
+  onTravelCourse,
+  onClearCourse,
+  onStartTour,
+  tourActive,
 }: Props) {
   const traveling = destination !== null
   // Radar source: immediate neighbors of the current node. Future sources
@@ -128,7 +153,14 @@ export function Hud({
     else setOpenId((cur) => (cur === 'inspector' ? null : cur))
   }, [selectedNode])
 
+  // A guided tour locks the rail: close whatever's open so no manual panel is
+  // left interactable underneath the (dimmed, non-interactive) rail.
+  useEffect(() => {
+    if (tourActive) setOpenId(null)
+  }, [tourActive])
+
   const handleOpenChange = (id: string | null) => {
+    if (tourActive) return
     // Leaving the inspector clears the selection; opening it with nothing
     // selected inspects the current node.
     if (openId === 'inspector' && id !== 'inspector') onClosePanel()
@@ -193,15 +225,33 @@ export function Hud({
       icon: '⌕',
       title: 'Scanner — search',
       width: 300,
-      content: ({ close }: { close: () => void }) => (
-        <SearchBar
-          onSearch={onSearch}
-          onPick={(id) => {
-            close()
-            onJump(id)
-          }}
-        />
-      ),
+      // Cross-fade between the search box and the plotted-course view. Once the
+      // course is being travelled, drop back to search (the route stays
+      // highlighted in the scene until arrival).
+      contentKey: plottedRoute.length > 1 && !traveling ? 'course' : 'scanner',
+      content: ({ close }: { close: () => void }) =>
+        plottedRoute.length > 1 && !traveling ? (
+          <CoursePanel
+            route={plottedRoute}
+            graph={graph}
+            onTravel={() => {
+              close()
+              onTravelCourse()
+            }}
+            onClear={onClearCourse}
+          />
+        ) : (
+          <SearchBar
+            onSearch={onSearch}
+            // Plot a course: highlight the route + auto-frame, keep the panel
+            // open (it shifts to the course view). Travel is then deliberate.
+            onPlotCourse={onPlotCourse}
+            onJump={(id) => {
+              close()
+              onJump(id)
+            }}
+          />
+        ),
     },
     {
       id: 'filter',
@@ -211,6 +261,47 @@ export function Hud({
       content: schema ? (
         <FilterPanel schema={schema} predicate={predicate} onChange={onPredicateChange} />
       ) : null,
+    },
+    {
+      id: 'tours',
+      icon: '✦',
+      title: 'Guided tours',
+      width: 280,
+      content: ({ close }: { close: () => void }) => (
+        <Stack spacing={1.25}>
+          <Typography sx={{ font: '11px/1.7 ui-monospace, Menlo, monospace', letterSpacing: 3, color: '#aadfff' }}>
+            GUIDED TOURS
+          </Typography>
+          {TOURS.map((t) => (
+            <Box
+              key={t.file}
+              component="button"
+              onClick={() => {
+                close()
+                onStartTour(t.file)
+              }}
+              sx={{
+                textAlign: 'left',
+                width: '100%',
+                p: 1,
+                color: '#efe6ff',
+                background: 'rgba(201, 166, 255, 0.08)',
+                border: '1px solid rgba(201, 166, 255, 0.45)',
+                borderRadius: '8px',
+                cursor: 'pointer',
+                '&:hover': { borderColor: '#c9a6ff', background: 'rgba(201, 166, 255, 0.16)' },
+              }}
+            >
+              <Typography sx={{ font: '11px/1.5 ui-monospace, Menlo, monospace', letterSpacing: 0.5, color: '#c9a6ff' }}>
+                ▶ {t.title}
+              </Typography>
+              <Typography sx={{ font: '10px/1.5 ui-monospace, Menlo, monospace', color: 'text.secondary' }}>
+                {t.subtitle}
+              </Typography>
+            </Box>
+          ))}
+        </Stack>
+      ),
     },
     {
       id: 'console',
@@ -246,7 +337,15 @@ export function Hud({
       <ViewportFrame />
 
       {/* Left activation rail */}
-      <ConsoleRail items={railItems} openId={openId} onOpenChange={handleOpenChange} />
+      <ConsoleRail
+        items={railItems}
+        openId={openId}
+        onOpenChange={handleOpenChange}
+        locked={tourActive}
+        // While a tour drives the view the rail is locked, but the inspector it
+        // opens stays readable (full opacity) — just inert. See ConsoleRail.
+        readOnlyId={tourActive ? 'inspector' : null}
+      />
 
       {/* Travel banner — top center */}
       {traveling && (

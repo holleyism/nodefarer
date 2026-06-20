@@ -27,11 +27,15 @@ interface NodeMeshProps {
   geometry: THREE.SphereGeometry
   isSelected: boolean
   isCurrent: boolean
+  // On a highlighted route: glow in the highlight colour, in place (an overlay
+  // on the real sphere — no separate floating ring to parallax off the node).
+  isHighlighted: boolean
+  highlightColor: string
   onSelect: (id: string) => void
   onTravel: (id: string) => void
 }
 
-const NodeMesh = memo(function NodeMesh({ node, x, y, z, color, geometry, isSelected, isCurrent, onSelect, onTravel }: NodeMeshProps) {
+const NodeMesh = memo(function NodeMesh({ node, x, y, z, color, geometry, isSelected, isCurrent, isHighlighted, highlightColor, onSelect, onTravel }: NodeMeshProps) {
   const radius = NODE_RADIUS[node.type]
   const handleClick = (e: ThreeEvent<MouseEvent>) => {
     e.stopPropagation()
@@ -49,12 +53,12 @@ const NodeMesh = memo(function NodeMesh({ node, x, y, z, color, geometry, isSele
           Skipped on the current node — the camera sits right on top of it, so
           its halo would just wash the whole lower view. */}
       {!isCurrent && (
-        <sprite scale={radius * (isSelected ? 6 : 5)} raycast={() => null}>
+        <sprite scale={radius * (isHighlighted ? 6 : isSelected ? 6 : 5)} raycast={() => null}>
           <spriteMaterial
             map={glowTexture}
-            color={color}
+            color={isHighlighted ? highlightColor : color}
             transparent
-            opacity={isSelected ? 0.7 : 0.5}
+            opacity={isHighlighted ? 0.75 : isSelected ? 0.7 : 0.5}
             blending={THREE.AdditiveBlending}
             depthWrite={false}
             toneMapped={false}
@@ -76,8 +80,8 @@ const NodeMesh = memo(function NodeMesh({ node, x, y, z, color, geometry, isSele
       >
         <meshStandardMaterial
           color={color}
-          emissive={color}
-          emissiveIntensity={isSelected ? 1.6 : 0.7}
+          emissive={isHighlighted ? highlightColor : color}
+          emissiveIntensity={isHighlighted ? 1.7 : isSelected ? 1.6 : 0.7}
           roughness={0.4}
           metalness={0.1}
         />
@@ -90,14 +94,18 @@ interface NodesProps {
   graph: Graph
   selectedId: string | null
   currentId: string
+  // Nodes on a highlighted route, and the highlight colour.
+  highlightNodeIds?: Set<string>
+  highlightColor?: string
   onSelect: (id: string) => void
   onTravel: (id: string) => void
 }
 
 // The current node renders too — the ship hovers above it, so you see
 // your own "planet" below the viewport rather than sitting inside it.
-export function Nodes({ graph, selectedId, currentId, onSelect, onTravel }: NodesProps) {
+export function Nodes({ graph, selectedId, currentId, highlightNodeIds, highlightColor, onSelect, onTravel }: NodesProps) {
   const geometry = useMemo(() => new THREE.SphereGeometry(1, 24, 24), [])
+  const hlColor = highlightColor ?? '#ffce7a'
   return (
     <group>
       {graph.nodes.map((node) => (
@@ -111,6 +119,8 @@ export function Nodes({ graph, selectedId, currentId, onSelect, onTravel }: Node
           geometry={geometry}
           isSelected={node.id === selectedId}
           isCurrent={node.id === currentId}
+          isHighlighted={highlightNodeIds?.has(node.id) ?? false}
+          highlightColor={hlColor}
           onSelect={onSelect}
           onTravel={onTravel}
         />
