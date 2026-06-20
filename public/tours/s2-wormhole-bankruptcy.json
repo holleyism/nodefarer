@@ -52,7 +52,7 @@
       "id": "recap",
       "title": "Found by exploring",
       "body": "We started on a 1982 model of memory, followed it through learning and pattern recognition, and a wormhole dropped us somewhere no one was looking: predicting financial collapse. That's the point — you don't search for the surprise, you explore until it finds you.",
-      "op": { "kind": "look" },
+      "op": { "kind": "look", "focus": "W2014702547" },
       "nextLabel": "End tour"
     }
   ]

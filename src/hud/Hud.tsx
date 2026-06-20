@@ -87,6 +87,11 @@ const TOURS = [
     title: 'Wormhole: from memory to markets',
     subtitle: 'Associative memory → corporate bankruptcy',
   },
+  {
+    file: 's3-wormhole-astrophysics.json',
+    title: 'Wormhole: from sequences to the cosmos',
+    subtitle: 'Time-series forecasting → gravitational waves',
+  },
 ]
 
 export function Hud({

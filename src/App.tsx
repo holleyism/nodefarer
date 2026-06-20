@@ -645,6 +645,19 @@ export default function App() {
           )
           if (e) setShownEdgeIds((s) => new Set(s).add(e.id))
         }
+        // Turn the gaze (animated, no zoom) toward `focus` — e.g. a recap "look
+        // back" toward the node we came from across the wormhole.
+        if (op.focus && view && currentId) {
+          const fn = view.nodeById.get(op.focus)
+          if (fn?.x != null) {
+            setFrameTarget({
+              points: [[fn.x!, fn.y!, fn.z!]],
+              destination: [fn.x!, fn.y!, fn.z!],
+              zoom: false,
+            })
+            setFrameSignal((f) => f + 1)
+          }
+        }
         return nextFrame()
       }
       default:

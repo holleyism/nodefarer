@@ -49,8 +49,9 @@ export type TourOp =
   | { kind: 'travel'; to: string; collapseOffPath?: boolean; inspect?: boolean }
   // Prune `nodeId`'s subtree (BFS-rooted at `fromId`, the current node).
   | { kind: 'collapse'; nodeId: string; fromId: string }
-  // No graph change — move/emphasize the camera, or highlight a single edge.
-  // Used for "look at this" beats (the wormhole conduit) and the closing recap.
+  // No graph change. `focus` turns the gaze (animated, no zoom) toward a node —
+  // e.g. a recap "look back" toward where we came from; `edge` lights a single
+  // edge. Used for "look at this" beats and the closing recap.
   | { kind: 'look'; focus?: string; edge?: { from: string; to: string; rel: string } }
 
 export interface TourStep {
