@@ -5,6 +5,7 @@ package main
 
 import (
 	"context"
+	_ "embed"
 	"errors"
 	"log"
 	"net/http"
@@ -25,6 +26,13 @@ import (
 	mw "github.com/holleyism/nodefarer/backend/internal/middleware"
 	"github.com/holleyism/nodefarer/backend/internal/services"
 )
+
+// The canonical Atlas for this backend, compiled in so the server is always
+// self-describing. An ATLAS_PATH env var can point at an external file to
+// override it (e.g. a second Atlas over the same data) without a rebuild.
+//
+//go:embed atlas.json
+var embeddedAtlas []byte
 
 func main() {
 	cfg, err := config.Load()
@@ -49,6 +57,21 @@ func main() {
 	gh := handlers.NewGraphHandler(svc)
 	health := handlers.NewHealth(driver)
 
+	atlasJSON := embeddedAtlas
+	if cfg.AtlasPath != "" {
+		if b, readErr := os.ReadFile(cfg.AtlasPath); readErr == nil {
+			atlasJSON = b
+			log.Printf("atlas: loaded from %s", cfg.AtlasPath)
+		} else {
+			log.Printf("atlas: ATLAS_PATH=%s unreadable (%v); using embedded atlas", cfg.AtlasPath, readErr)
+		}
+	}
+	ah, err := handlers.NewAtlasHandler(atlasJSON)
+	if err != nil {
+		log.Fatalf("atlas: %v", err)
+	}
+	log.Printf("atlas: serving %s", ah.Summary())
+
 	r := chi.NewRouter()
 	r.Use(chimw.RequestID)
 	r.Use(chimw.RealIP)
@@ -70,6 +93,8 @@ func main() {
 	r.Route("/api/v1", func(api chi.Router) {
 		api.Use(httprate.LimitByIP(cfg.RateRPS, time.Minute))
 		api.Use(mw.Auth(cfg.AuthToken))
+		api.Get("/atlas", ah.Atlas)
+		api.Get("/atlases", ah.Atlases)
 		api.Post("/entry", gh.Entry)
 		api.Post("/expand", gh.Expand)
 		api.Post("/path", gh.Path)

@@ -42,6 +42,8 @@ validation swaps in here later). The password is read at runtime, never logged.
 | GET | `/api/v1/search` | `?q=&limit=` | `Candidate[]` (text name match over works) |
 | GET | `/api/v1/similar` | `?id=&limit=` | `Candidate[]` (vector-index semantic neighbors) |
 | GET | `/api/v1/neighbors` | `?id=&rel=&limit=` | `Candidate[]` (preview) |
+| GET | `/api/v1/atlas` | — | the backend's `Atlas` (legend, anchors, tours) — verbatim |
+| GET | `/api/v1/atlases` | — | one-element catalog `[{id,name,description}]` |
 | GET | `/healthz` `/readyz` | — | liveness / Neo4j readiness |
 | GET | `/metrics` | — | Prometheus |
 
@@ -49,6 +51,12 @@ Queries match by OpenAlex id prefix (`W/A/C/S/I` → label) so they hit the
 per-label id index instead of scanning. Every result is bounded and ranked by
 PageRank, mirroring `StaticBundleSource`. `collapse` and `filter` stay
 client-side (operate on the in-hand view), so they need no endpoint.
+
+The **Atlas** (`cmd/api/atlas.json`) is compiled into the binary via `//go:embed`,
+so the server is self-describing out of the box. Set `ATLAS_PATH` to serve an
+external file instead (e.g. a second Atlas over the same data) without a rebuild.
+The web client prefers the backend Atlas over its bundled `manifest.json` when
+`VITE_API_URL` is set.
 
 ### Quick check (on the box, once running)
 

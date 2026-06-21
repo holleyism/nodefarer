@@ -1,4 +1,5 @@
-import { memo, useMemo } from 'react'
+import { memo, useCallback, useMemo, useRef } from 'react'
+import { useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
 import type { ThreeEvent } from '@react-three/fiber'
 import type { Graph, GraphNode, NodeType } from '../types'
@@ -31,12 +32,16 @@ interface NodeMeshProps {
   // on the real sphere — no separate floating ring to parallax off the node).
   isHighlighted: boolean
   highlightColor: string
+  // Registers this node's group so the parent can drive its position imperatively
+  // during a live reform (kept in phase with the camera + beams).
+  register: (id: string, g: THREE.Group | null) => void
   onSelect: (id: string) => void
   onTravel: (id: string) => void
 }
 
-const NodeMesh = memo(function NodeMesh({ node, x, y, z, color, geometry, isSelected, isCurrent, isHighlighted, highlightColor, onSelect, onTravel }: NodeMeshProps) {
+const NodeMesh = memo(function NodeMesh({ node, x, y, z, color, geometry, isSelected, isCurrent, isHighlighted, highlightColor, register, onSelect, onTravel }: NodeMeshProps) {
   const radius = NODE_RADIUS[node.type]
+  const setGroup = useCallback((g: THREE.Group | null) => register(node.id, g), [register, node.id])
   const handleClick = (e: ThreeEvent<MouseEvent>) => {
     e.stopPropagation()
     if (e.delta > 4) return // it was a look-around drag, not a click
@@ -47,7 +52,7 @@ const NodeMesh = memo(function NodeMesh({ node, x, y, z, color, geometry, isSele
     onTravel(node.id)
   }
   return (
-    <group position={[x, y, z]}>
+    <group ref={setGroup} position={[x, y, z]}>
       {/* Halo: billboarded additive glow so the node reads as a star, and so
           beams have something soft to dissolve into. Doesn't take clicks.
           Skipped on the current node — the camera sits right on top of it, so
@@ -94,37 +99,64 @@ interface NodesProps {
   graph: Graph
   selectedId: string | null
   currentId: string
-  // Nodes on a highlighted route, and the highlight colour.
-  highlightNodeIds?: Set<string>
-  highlightColor?: string
+  // Highlighted nodes → their highlight colour (route / nebula overlays may
+  // layer, each with its own colour; Plan H3).
+  highlightNodes?: Map<string, string>
+  // While true, node positions are driven imperatively each frame from the live
+  // node coords (a layout reform in progress) instead of from React props.
+  live?: boolean
   onSelect: (id: string) => void
   onTravel: (id: string) => void
 }
 
 // The current node renders too — the ship hovers above it, so you see
 // your own "planet" below the viewport rather than sitting inside it.
-export function Nodes({ graph, selectedId, currentId, highlightNodeIds, highlightColor, onSelect, onTravel }: NodesProps) {
+export function Nodes({ graph, selectedId, currentId, highlightNodes, live = false, onSelect, onTravel }: NodesProps) {
   const geometry = useMemo(() => new THREE.SphereGeometry(1, 24, 24), [])
-  const hlColor = highlightColor ?? '#ffce7a'
+
+  // Imperative per-frame position sync during a reform: keeps the node meshes in
+  // the SAME frame as the camera (which also reads live coords), so the anchored
+  // node doesn't bounce. Off when not reforming — positions come from props.
+  const groups = useRef(new Map<string, THREE.Group>())
+  const register = useCallback((id: string, g: THREE.Group | null) => {
+    if (g) groups.current.set(id, g)
+    else groups.current.delete(id)
+  }, [])
+  const liveRef = useRef(live)
+  liveRef.current = live
+  const graphRef = useRef(graph)
+  graphRef.current = graph
+  useFrame(() => {
+    if (!liveRef.current) return
+    for (const n of graphRef.current.nodes) {
+      if (n.x == null || n.y == null || n.z == null) continue
+      groups.current.get(n.id)?.position.set(n.x, n.y, n.z)
+    }
+  })
+
   return (
     <group>
-      {graph.nodes.map((node) => (
-        <NodeMesh
-          key={node.id}
-          node={node}
-          x={node.x!}
-          y={node.y!}
-          z={node.z!}
-          color={node.color}
-          geometry={geometry}
-          isSelected={node.id === selectedId}
-          isCurrent={node.id === currentId}
-          isHighlighted={highlightNodeIds?.has(node.id) ?? false}
-          highlightColor={hlColor}
-          onSelect={onSelect}
-          onTravel={onTravel}
-        />
-      ))}
+      {graph.nodes.map((node) => {
+        const hl = highlightNodes?.get(node.id)
+        return (
+          <NodeMesh
+            key={node.id}
+            node={node}
+            x={node.x!}
+            y={node.y!}
+            z={node.z!}
+            color={node.color}
+            geometry={geometry}
+            isSelected={node.id === selectedId}
+            isCurrent={node.id === currentId}
+            isHighlighted={hl != null}
+            highlightColor={hl ?? '#ffce7a'}
+            register={register}
+            onSelect={onSelect}
+            onTravel={onTravel}
+          />
+        )
+      })}
     </group>
   )
 }

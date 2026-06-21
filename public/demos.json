@@ -1,0 +1,8 @@
+[
+  {
+    "id": "hopfield",
+    "name": "Hopfield → attention",
+    "description": "Idea genealogy: associative memory (Hopfield 1982) to the transformer, with semantic wormholes. The default bundled demo.",
+    "dir": ""
+  }
+]

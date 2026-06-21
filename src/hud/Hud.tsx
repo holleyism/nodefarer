@@ -15,6 +15,9 @@ import { OptionsMenu } from './OptionsMenu'
 import { Radar } from './Radar'
 import { SearchBar } from './SearchBar'
 import { ValuePill } from './ValuePill'
+import type { AtlasTourRef, SourceChoice } from '../data/atlas'
+import type { DemoEntry } from '../data/bundleStore'
+import { NebulaPanel, type NebulaInfo } from './NebulaPanel'
 import type { Candidate, Predicate } from '../data/GraphSource'
 import type { GraphSchema } from '../data/graphSchema'
 import { ViewportFrame } from './ViewportFrame'
@@ -70,34 +73,41 @@ interface Props {
   onPlotCourse: (id: string) => void
   onTravelCourse: () => void
   onClearCourse: () => void
+  // Guided tours from the Atlas catalog (Plan G2); `file` is the path under the
+  // source root. Each plays over the bundle via the same exploration engine as
+  // manual navigation (see src/data/tour.ts).
+  tours: AtlasTourRef[]
   onStartTour: (file: string) => void
+  // Runtime data-source selection (Plan G4) — the "choose your universe" picker.
+  sourceChoice: SourceChoice
+  demos: DemoEntry[]
+  onSwitchUniverse: (choice: SourceChoice) => void
+  onLoadBundleUrl: (url: string) => void
+  onPickLocalBundle: () => void
+  // Nebula grouping controls (Plan H).
+  nebulaOn: boolean
+  nebulaLabel: string
+  groupStrength: number
+  nebulaSpacing: number
+  watchReform: boolean
+  onToggleNebula: () => void
+  onGroupStrength: (value: number) => void
+  onNebulaSpacing: (value: number) => void
+  onToggleWatchReform: () => void
+  onFoldDistant: () => void
+  // Nebula inspector (Plan H2b): the focused/current nebula + its fold state.
+  nebulaInfo: NebulaInfo | null
+  nebulaColor: string
+  nebulaFolded: boolean
+  nebulaIsCurrent: boolean
+  onSetNebulaFolded: (key: string, folded: boolean) => void
+  // The locked/selected nebula — opens the rail inspector when set (Plan H2b).
+  focusedNebula: string | null
+  // Highlight the inspected nebula's members in place (Plan H3).
+  nebulaHighlight: boolean
+  onToggleNebulaHighlight: () => void
   tourActive: boolean
 }
-
-// Guided tours shipped with the demo bundle. Each plays over the canned bundle
-// via the same exploration engine as manual navigation (see src/data/tour.ts).
-const TOURS = [
-  {
-    file: 's1-idea-genealogy.json',
-    title: 'Idea genealogy & diffusion',
-    subtitle: 'Hopfield 1982 → modern attention',
-  },
-  {
-    file: 's2-wormhole-bankruptcy.json',
-    title: 'Wormhole: from memory to markets',
-    subtitle: 'Associative memory → corporate bankruptcy',
-  },
-  {
-    file: 's3-wormhole-astrophysics.json',
-    title: 'Wormhole: from sequences to the cosmos',
-    subtitle: 'Time-series forecasting → gravitational waves',
-  },
-  {
-    file: 's4-wormhole-plato.json',
-    title: 'Wormhole: from networks to Plato',
-    subtitle: 'Concept learning → Plato’s problem',
-  },
-]
 
 export function Hud({
   graph,
@@ -144,7 +154,31 @@ export function Hud({
   onPlotCourse,
   onTravelCourse,
   onClearCourse,
+  tours,
   onStartTour,
+  sourceChoice,
+  demos,
+  onSwitchUniverse,
+  onLoadBundleUrl,
+  onPickLocalBundle,
+  nebulaOn,
+  nebulaLabel,
+  groupStrength,
+  nebulaSpacing,
+  watchReform,
+  onToggleNebula,
+  onGroupStrength,
+  onNebulaSpacing,
+  onToggleWatchReform,
+  onFoldDistant,
+  nebulaInfo,
+  nebulaColor,
+  nebulaFolded,
+  nebulaIsCurrent,
+  onSetNebulaFolded,
+  focusedNebula,
+  nebulaHighlight,
+  onToggleNebulaHighlight,
   tourActive,
 }: Props) {
   const traveling = destination !== null
@@ -167,6 +201,11 @@ export function Hud({
     if (selectedNode) setOpenId('inspector')
     else setOpenId((cur) => (cur === 'inspector' ? null : cur))
   }, [selectedNode])
+
+  // Clicking a nebula (sets focusedNebula) opens its rail inspector (Plan H2b).
+  useEffect(() => {
+    if (focusedNebula) setOpenId('nebula')
+  }, [focusedNebula])
 
   // A guided tour locks the rail: close whatever's open so no manual panel is
   // left interactable underneath the (dimmed, non-interactive) rail.
@@ -287,7 +326,7 @@ export function Hud({
           <Typography sx={{ font: '11px/1.7 ui-monospace, Menlo, monospace', letterSpacing: 3, color: '#aadfff' }}>
             GUIDED TOURS
           </Typography>
-          {TOURS.map((t) => (
+          {tours.map((t) => (
             <Box
               key={t.file}
               component="button"
@@ -319,6 +358,24 @@ export function Hud({
       ),
     },
     {
+      id: 'nebula',
+      icon: '◍',
+      title: 'Nebula',
+      width: 260,
+      content: (
+        <NebulaPanel
+          info={nebulaInfo}
+          color={nebulaColor}
+          folded={nebulaFolded}
+          isCurrent={nebulaIsCurrent}
+          highlight={nebulaHighlight}
+          onToggleFold={onSetNebulaFolded}
+          onToggleHighlight={onToggleNebulaHighlight}
+          onSelectMember={onSelect}
+        />
+      ),
+    },
+    {
       id: 'console',
       icon: '▤',
       title: 'Ship console',
@@ -341,6 +398,21 @@ export function Hud({
           onToggleAutoCollapse={onToggleAutoCollapse}
           doorsClosed={doorsClosed}
           onToggleDoors={onToggleDoors}
+          sourceChoice={sourceChoice}
+          demos={demos}
+          onSwitchUniverse={onSwitchUniverse}
+          onLoadBundleUrl={onLoadBundleUrl}
+          onPickLocalBundle={onPickLocalBundle}
+          nebulaOn={nebulaOn}
+          nebulaLabel={nebulaLabel}
+          groupStrength={groupStrength}
+          nebulaSpacing={nebulaSpacing}
+          watchReform={watchReform}
+          onToggleNebula={onToggleNebula}
+          onGroupStrength={onGroupStrength}
+          onNebulaSpacing={onNebulaSpacing}
+          onToggleWatchReform={onToggleWatchReform}
+          onFoldDistant={onFoldDistant}
         />
       ),
     },

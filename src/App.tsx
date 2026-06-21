@@ -5,21 +5,101 @@ import { Canvas } from '@react-three/fiber'
 import { syntheticBundle } from './data/generateGraph'
 import { StaticBundleSource } from './data/StaticBundleSource'
 import { ApiSource } from './data/ApiSource'
-import { budgetView, corridorView, filterView } from './data/viewBuilder'
+import { DEFAULT_LEGEND, budgetView, corridorView, filterView, maskFoldedGroups } from './data/viewBuilder'
+import { loadAtlas, validateAtlas, loadSourceChoice, saveSourceChoice } from './data/atlas'
+import type { Atlas, AtlasTourRef, SourceChoice } from './data/atlas'
+import { urlBundleStore, pickLocalBundle, validateBundle, loadDemoCatalog } from './data/bundleStore'
+import type { BundleStore, DemoEntry } from './data/bundleStore'
 import type { EdgeSortKey } from './data/edgeSort'
 import type { EntryMode, ExpandRule, GraphSource, Predicate, View } from './data/GraphSource'
 import type { GraphSchema } from './data/graphSchema'
 import type { Bundle } from './data/bundle'
+import { resolveTourAnchors } from './data/tour'
 import type { Tour, TourOp } from './data/tour'
 import { shortestPath } from './data/shortestPath'
-import { runForceLayout } from './layout/runForceLayout'
+import { runForceLayout, buildSimulation, unpinAll, type ClusterSpec } from './layout/runForceLayout'
+import { buildClusterSpec, assignGroups, groupColor, DEFAULT_SPACING } from './layout/grouping'
+import type { NebulaBody } from './scene/Nebulae'
+import type { NebulaInfo } from './hud/NebulaPanel'
+import type { GraphNode } from './types'
 import { GraphScene } from './scene/GraphScene'
+import type { Emphasis } from './scene/RouteHighlight'
 import { Hud } from './hud/Hud'
 import { MessageToast, type AppMessage } from './hud/MessageToast'
 import { TourPanel } from './hud/TourPanel'
 import { useTour, type TourExecutor } from './hud/useTour'
 
-const BUNDLE_URL = '/bundle.json'
+interface BuiltSource {
+  source: GraphSource
+  atlas: Atlas | null
+  view: View
+  actualKind: 'bundle' | 'api' // what we actually connected to (may differ on api fallback)
+  store: BundleStore // where aux files (tours) for this universe are read from
+}
+
+// A local-folder bundle picked this session (Plan G4). Module-level because a
+// File System Access handle / FileList can't be serialized into the persisted
+// SourceChoice — on reload a 'bundle-local' choice falls back to the default dir.
+let localBundleStore: BundleStore | null = null
+
+// Which directory a bundle choice reads from. api reads aux files (tours) from
+// the web root.
+function bundleStoreFor(choice: SourceChoice): BundleStore {
+  if (choice.kind === 'bundle-local') return localBundleStore ?? urlBundleStore('')
+  if (choice.kind === 'bundle') return urlBundleStore(choice.dir ?? '')
+  return urlBundleStore('')
+}
+
+// Build a data source + its entry view from a SourceChoice (Plan G4). Resolves
+// the Atlas first (its legend drives materialization): on the live track prefer
+// the backend's own Atlas, else the bundle directory's manifest, else the
+// built-in default legend. A failing API falls back to the bundle so the app
+// never hard-hangs. Never throws (the bundle/synthetic fallback always yields a
+// view).
+async function buildSource(choice: SourceChoice): Promise<BuiltSource> {
+  const store = bundleStoreFor(choice)
+  let atlas: Atlas | null = null
+
+  if (choice.kind === 'api') {
+    const base = choice.url.replace(/\/$/, '')
+    try {
+      atlas = await loadAtlas(`${base}/api/v1/atlas`, choice.token)
+    } catch (err) {
+      console.warn('Backend Atlas unavailable; trying bundle manifest:', err)
+    }
+  }
+  if (!atlas) {
+    try {
+      atlas = validateAtlas(await store.readJSON('manifest.json'))
+    } catch (err) {
+      console.warn('No Atlas manifest; using default legend:', err)
+    }
+  }
+  const legend = atlas?.legend ?? DEFAULT_LEGEND
+
+  if (choice.kind === 'api') {
+    try {
+      const s = new ApiSource(choice.url, choice.token, legend)
+      const view = await s.entry({ mode: 'node' })
+      return { source: s, atlas, view, actualKind: 'api', store }
+    } catch (err) {
+      console.warn('ApiSource unavailable, falling back to bundle:', err)
+    }
+  }
+
+  // bundle (or api fallback): read the data file the atlas points at, relative to
+  // the bundle directory.
+  const dataPath = (atlas?.source.kind === 'bundle' && atlas.source.url) || 'bundle.json'
+  let bundle: Bundle
+  try {
+    bundle = (await store.readJSON(dataPath)) as Bundle
+  } catch {
+    bundle = syntheticBundle(7)
+  }
+  const s = new StaticBundleSource(bundle, legend)
+  const view = await s.entry({ mode: 'node' })
+  return { source: s, atlas, view, actualKind: 'bundle', store }
+}
 
 // The exploration state captured at a tour step boundary, restored on Back.
 interface SnapState {
@@ -38,6 +118,31 @@ interface SnapState {
 
 export default function App() {
   const sourceRef = useRef<GraphSource | null>(null)
+  // The loaded Atlas: its `tours` drive the launcher catalog and its `anchors`
+  // resolve `@name` references in tour steps (Plan G2).
+  const atlasRef = useRef<Atlas | null>(null)
+  // Where the active universe's aux files (tours) are read from (Plan G4).
+  const bundleStoreRef = useRef<BundleStore | null>(null)
+  const [tours, setTours] = useState<AtlasTourRef[]>([])
+  // The active data-source selection + the catalog of shipped demos (Plan G4).
+  const [sourceChoice, setSourceChoice] = useState<SourceChoice>(() => loadSourceChoice())
+  const [demos, setDemos] = useState<DemoEntry[]>([])
+  // Nebula grouping (Plan H): on/off + blend strength (0..1). `watchReform` runs
+  // the relayout visibly to convergence (doors open) instead of hidden.
+  const [nebulaOn, setNebulaOn] = useState(false)
+  const [groupStrength, setGroupStrength] = useState(0.6)
+  const [nebulaSpacing, setNebulaSpacing] = useState(DEFAULT_SPACING)
+  const [watchReform, setWatchReform] = useState(false)
+  // Fold/inspect nebulae (Plan H2b). `foldedGroups` = which groups are collapsed
+  // to just their body (explicit, so "fold distant" is a one-shot action and a
+  // nebula can be re-folded). `focusedNebula` = the selected/locked nebula (its
+  // body shows a reticle and the rail panel inspects it); null = show the current
+  // node's nebula. `hoveredNebula` = transient hover highlight + name readout.
+  const [foldedGroups, setFoldedGroups] = useState<Set<string>>(new Set())
+  const [focusedNebula, setFocusedNebula] = useState<string | null>(null)
+  const [hoveredNebula, setHoveredNebula] = useState<string | null>(null)
+  // Highlight the inspected nebula's visible members in place (Plan H3).
+  const [highlightNebula, setHighlightNebula] = useState(false)
   const [view, setView] = useState<View | null>(null)
   const [schema, setSchema] = useState<GraphSchema | null>(null)
   const [currentId, setCurrentId] = useState<string | null>(null)
@@ -149,47 +254,51 @@ export default function App() {
     }
   }
 
-  // Pick the data source and land on an entry view. VITE_API_URL → live
-  // ApiSource (Go/Neo4j); otherwise the static bundle (served, else synthetic).
-  // A failing API falls back to the bundle so dev never hard-hangs.
+  // The active nebula grouping lens (Atlas legend, overridden by the live UI
+  // controls) and its ClusterSpec for a given view (Plan H). Null when nebulae
+  // are off or nothing in the view carries the grouping key.
+  const activeLegend = () => atlasRef.current?.legend ?? DEFAULT_LEGEND
+  const clusterFor = (v: View): ClusterSpec | undefined => {
+    if (!nebulaOn) return undefined
+    const lens = { ...activeLegend().nebula, enabled: true, groupStrength }
+    return buildClusterSpec(v, lens, groupStrength, nebulaSpacing) ?? undefined
+  }
+
+  // Initial load: build the source for the active choice (saved pick, else the
+  // VITE_API_URL default, else the bundle) and land on its entry view. Runtime
+  // switching happens in switchUniverse (Plan G4).
   useEffect(() => {
     let cancelled = false
     ;(async () => {
-      const apiUrl = import.meta.env.VITE_API_URL as string | undefined
-      let source: GraphSource | null = null
-      let v: View | null = null
-
-      if (apiUrl) {
-        try {
-          const s = new ApiSource(apiUrl, import.meta.env.VITE_API_TOKEN as string | undefined)
-          v = await s.entry({ mode: 'node' })
-          source = s
-        } catch (err) {
-          console.warn('ApiSource unavailable, falling back to bundle:', err)
-        }
-      }
-
-      if (!source) {
-        let bundle: Bundle
-        try {
-          const res = await fetch(BUNDLE_URL)
-          if (!res.ok) throw new Error(`bundle ${res.status}`)
-          bundle = await res.json()
-        } catch {
-          bundle = syntheticBundle(7)
-        }
-        const s = new StaticBundleSource(bundle)
-        v = await s.entry({ mode: 'node' })
-        source = s
-      }
-
-      if (cancelled || !v) return
-      runForceLayout(v)
+      const { source, atlas, view: v, store } = await buildSource(loadSourceChoice())
+      if (cancelled) return
+      // Honour the Atlas's nebula default on first land.
+      const lens = atlas?.legend.nebula
+      const on = lens?.enabled ?? false
+      const gs = lens?.groupStrength && lens.groupStrength > 0 ? lens.groupStrength : 0.6
+      const cluster = on ? (buildClusterSpec(v, { ...lens!, enabled: true, groupStrength: gs }, gs) ?? undefined) : undefined
+      runForceLayout(v, { cluster })
       sourceRef.current = source
+      atlasRef.current = atlas
+      bundleStoreRef.current = store
+      setTours(atlas?.tours ?? [])
+      setNebulaOn(on)
+      setGroupStrength(gs)
       setView(v)
       setCurrentId(v.anchorId)
       setTrail([v.anchorId])
     })()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  // Load the shipped-demo catalog once (drives the universe picker's demo list).
+  useEffect(() => {
+    let cancelled = false
+    loadDemoCatalog().then((list) => {
+      if (!cancelled) setDemos(list)
+    })
     return () => {
       cancelled = true
     }
@@ -450,7 +559,7 @@ export default function App() {
   const reView = (next: (s: GraphSource, v: View) => Promise<View>) =>
     behindDoors(async (s, v) => {
       const nv = await next(s, v)
-      runForceLayout(nv, { pin: true })
+      runForceLayout(nv, { pin: true, cluster: clusterFor(nv) })
       return () => setView(nv)
     })
   const handleExpand = (id: string, rule?: ExpandRule) => reView((s, v) => s.expand(v, id, rule))
@@ -468,7 +577,7 @@ export default function App() {
   const resetTo = (entry: EntryMode) =>
     behindDoorsAsync(async (s) => {
       const nv = await s.entry(entry)
-      runForceLayout(nv)
+      runForceLayout(nv, { cluster: clusterFor(nv) })
       return () => {
         setView(nv)
         setCurrentId(nv.anchorId)
@@ -485,6 +594,165 @@ export default function App() {
     if (tourActiveRef.current) return
     resetTo({ mode: 'node', id })
   }
+
+  // Switch the active "universe" (data source) at runtime (Plan G4). Build the
+  // new source off-screen, then commit the swap + full journey reset ONLY once
+  // the blast doors are fully shut — reusing the same pendingApply/
+  // finishBehindDoors gate every view swap uses, so the new layout never starts
+  // showing through a half-open door. The choice is persisted (survives reload).
+  const switchUniverse = async (choice: SourceChoice) => {
+    if (traveling || tourActiveRef.current) return
+    // A local folder can't survive reload, so persist a fallback to the default.
+    saveSourceChoice(choice.kind === 'bundle-local' ? { kind: 'bundle' } : choice)
+    setSourceChoice(choice)
+    // Begin closing the doors; compute the new universe in parallel.
+    pendingApply.current = null
+    doorsShutRef.current = doorsClosed
+    if (!doorsClosed) setDoorsClosed(true)
+
+    let built: BuiltSource | null = null
+    try {
+      built = await buildSource(choice)
+    } catch (err) {
+      console.warn('universe switch failed:', err)
+    }
+    if (!built) {
+      notify("Couldn't load that universe; keeping the current one.", 'error')
+      doorsShutRef.current = false
+      setDoorsClosed(false)
+      return
+    }
+
+    const { source, atlas, view: nv, actualKind, store } = built
+    runForceLayout(nv, { cluster: clusterFor(nv) }) // off-screen: nv isn't rendered until apply() runs
+    pendingApply.current = () => {
+      sourceRef.current = source
+      atlasRef.current = atlas
+      bundleStoreRef.current = store
+      setTours(atlas?.tours ?? [])
+      setView(nv)
+      setCurrentId(nv.anchorId)
+      setTrail([nv.anchorId])
+      setSelectedId(null)
+      setRoute([])
+      clearEdges()
+      setShownEdgeIds(new Set())
+      setHiddenEdgeIds(new Set())
+      setPlottedRoute([])
+      setFollowing(true)
+      if (choice.kind === 'api' && actualKind === 'bundle') {
+        notify('Backend unreachable — loaded the bundled demo instead.', 'error')
+      }
+    }
+    // Apply now if the doors are already shut; otherwise finishBehindDoors fires
+    // when BlastDoors reports fully closed.
+    finishBehindDoors()
+  }
+
+  // Load + validate a USER-supplied bundle directory (hosted URL or local
+  // folder) before switching to it, so a directory with a bad/missing file
+  // reports clearly instead of silently falling back. Shipped demos and the live
+  // backend skip this (trusted / validated by connecting).
+  const loadUserBundle = async (store: BundleStore, choice: SourceChoice) => {
+    const v = await validateBundle(store)
+    if (!v.ok) {
+      notify(`Bundle "${store.label}" is invalid: ${v.errors.join('; ')}`, 'error')
+      return
+    }
+    if (v.warnings.length) notify(`Bundle "${store.label}": ${v.warnings.join('; ')}`, 'error')
+    if (choice.kind === 'bundle-local') localBundleStore = store
+    switchUniverse(choice)
+  }
+  const handleLoadBundleUrl = (url: string) => {
+    const dir = url.trim()
+    if (dir) loadUserBundle(urlBundleStore(dir), { kind: 'bundle', dir })
+  }
+  const handlePickLocalBundle = async () => {
+    const store = await pickLocalBundle()
+    if (store) loadUserBundle(store, { kind: 'bundle-local' })
+  }
+
+  // Re-spatialize the current view for a nebula grouping change (Plan H). Two
+  // paths per the user's choice:
+  //   • watch reform ON  — tick the simulation over animation frames with the
+  //     doors OPEN so the universe visibly reforms; the viewpoint node is pinned
+  //     so the camera holds steady while everything reorganizes around it.
+  //   • watch reform OFF — relayout hidden behind the (fully-closed) blast doors,
+  //     same as every other view swap.
+  // Watch-reform: the simulation is ticked INSIDE the R3F render loop (the
+  // LayoutReform scene node) while the scene drives node/edge transforms
+  // imperatively (the `live` flag), so the whole animation stays in phase with
+  // the camera and doesn't bounce. App just hands over the sim and cleans up
+  // when LayoutReform reports the run is done. The current node is NOT pinned —
+  // it migrates to its cluster and the egocentric camera holds it centred.
+  const REFORM_STEPS = 28
+  const [reformSim, setReformSim] = useState<ReturnType<typeof buildSimulation> | null>(null)
+  const [liveLayout, setLiveLayout] = useState(false)
+  const reformViewRef = useRef<View | null>(null)
+  const onReformDone = () => {
+    reformSim?.stop()
+    const v = reformViewRef.current
+    if (v) {
+      unpinAll(v)
+      setView({ ...v }) // sync React props to the settled positions
+    }
+    reformViewRef.current = null
+    setReformSim(null)
+    setLiveLayout(false)
+  }
+
+  const restageNebula = (on: boolean, gs: number, spacing: number) => {
+    if (!view || traveling || tourActiveRef.current) return
+    const cluster = on
+      ? (buildClusterSpec(view, { ...activeLegend().nebula, enabled: true, groupStrength: gs }, gs, spacing) ?? undefined)
+      : undefined
+    if (watchReform) {
+      reformSim?.stop() // abandon any in-flight reform
+      reformViewRef.current = view
+      setReformSim(buildSimulation(view, { cluster }))
+      setLiveLayout(true)
+    } else {
+      behindDoors(async (_s, v) => {
+        runForceLayout(v, { cluster })
+        return () => setView({ ...v })
+      })
+    }
+  }
+
+  const handleToggleNebula = () => {
+    const on = !nebulaOn
+    setNebulaOn(on)
+    restageNebula(on, groupStrength, nebulaSpacing)
+  }
+  const handleGroupStrength = (gs: number) => {
+    setGroupStrength(gs)
+    if (nebulaOn) restageNebula(true, gs, nebulaSpacing)
+  }
+  const handleNebulaSpacing = (spacing: number) => {
+    setNebulaSpacing(spacing)
+    if (nebulaOn) restageNebula(true, groupStrength, spacing)
+  }
+  // Collapse every nebula except the current node's — a one-shot ACTION (Plan
+  // H2b), re-pressable. Folding is a pure visibility mask; no relayout.
+  const handleFoldDistant = () => {
+    if (!groupAssign) return
+    const cur = currentId ? groupAssign.get(currentId) : null
+    setFoldedGroups(new Set([...new Set(groupAssign.values())].filter((g) => g !== cur)))
+  }
+  // Fold / unfold a single nebula (from its inspector panel).
+  const handleSetNebulaFolded = (key: string, folded: boolean) =>
+    setFoldedGroups((s) => {
+      const next = new Set(s)
+      if (folded) next.add(key)
+      else next.delete(key)
+      return next
+    })
+  // Click a nebula body → lock focus (reticle + the rail inspector shows it).
+  const handleSelectNebula = (key: string) => setFocusedNebula(key)
+  const handleHoverNebula = (key: string | null) => setHoveredNebula(key)
+  // What the nebula groups by, for the console label (e.g. "field", "community").
+  const nebulaLens = activeLegend().nebula
+  const nebulaLabel = nebulaLens.basis === 'property' ? (nebulaLens.key ?? 'property') : nebulaLens.basis
 
   // ── Tour playback ──────────────────────────────────────────────────────────
   // Promise wrappers around the existing async primitives so the tour engine can
@@ -692,14 +960,13 @@ export default function App() {
   const tour = useTour(tourExec)
   tourActiveRef.current = tour.tour !== null
 
-  // Start a tour: fetch its definition, then hand it to the engine.
+  // Start a tour: read its definition from the active universe's bundle store
+  // (so a tour ships inside its demo directory), resolve its `@anchor` references
+  // against the Atlas anchors, then hand it to the engine.
   const handleStartTour = (file: string) => {
-    fetch(`/tours/${file}`)
-      .then((r) => {
-        if (!r.ok) throw new Error(`tour ${r.status}`)
-        return r.json() as Promise<Tour>
-      })
-      .then((t) => tour.start(t))
+    const store = bundleStoreRef.current ?? urlBundleStore('')
+    Promise.resolve(store.readJSON(file))
+      .then((t) => tour.start(resolveTourAnchors(t as Tour, atlasRef.current?.anchors)))
       .catch((err) =>
         notify(`Couldn't load tour: ${err instanceof Error ? err.message : String(err)}`, 'error'),
       )
@@ -770,6 +1037,110 @@ export default function App() {
     }, lane)
   }, [view, edgeBudget, edgeSort, shownEdgeIds, hiddenEdgeIds, showEdges, showWormholes, predicate, autoCollapse, traveling, trail, currentId, selectedId, route, plottedRoute])
 
+  // Group assignment over the FULL view (with propagation), shared by the nebula
+  // bodies and the fold mask (Plan H2/H2b). Null when nebulae are off. Declared
+  // before the early return so the hook order is stable.
+  const groupAssign = useMemo(() => {
+    if (!nebulaOn || !view) return null
+    return assignGroups(view, { ...activeLegend().nebula, enabled: true, groupStrength })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nebulaOn, groupStrength, view])
+  // Latest assignment for the arrival effect (which keys only off currentId).
+  const groupAssignRef = useRef(groupAssign)
+  groupAssignRef.current = groupAssign
+
+  // Volumetric nebula bodies for the scene (Plan H2): each group's centre +
+  // radius from the laid-out positions. Computed over the FULL view so a folded
+  // group (members hidden from the scene) still has a body. Empty when off.
+  const nebulae = useMemo<NebulaBody[]>(() => {
+    if (!nebulaOn || !view || !groupAssign) return []
+    const palette = activeLegend().colors.communityPalette
+    const groups = new Map<string, GraphNode[]>()
+    for (const n of view.nodes) {
+      const k = groupAssign.get(n.id)
+      if (k == null) continue
+      const arr = groups.get(k)
+      if (arr) arr.push(n)
+      else groups.set(k, [n])
+    }
+    const bodies: NebulaBody[] = []
+    for (const [key, members] of groups) {
+      let cx = 0,
+        cy = 0,
+        cz = 0,
+        m = 0
+      for (const n of members) {
+        if (n.x == null || n.y == null || n.z == null) continue
+        cx += n.x
+        cy += n.y
+        cz += n.z
+        m++
+      }
+      if (m < 2) continue
+      cx /= m
+      cy /= m
+      cz /= m
+      // Robust radius: the ~85th percentile of member distances, NOT the max — a
+      // single stray member (e.g. pulled out by a cross-field link) would
+      // otherwise balloon the cloud and make similar-sized clusters look wildly
+      // different in size.
+      const dists: number[] = []
+      for (const n of members) {
+        if (n.x == null || n.y == null || n.z == null) continue
+        dists.push(Math.hypot(n.x - cx, n.y - cy, n.z - cz))
+      }
+      dists.sort((a, b) => a - b)
+      const r = dists[Math.min(dists.length - 1, Math.floor(dists.length * 0.85))] ?? 0
+      bodies.push({ key, label: key, color: groupColor(key, palette), center: [cx, cy, cz], radius: r + 18, count: m, folded: false, focused: false, hovered: false })
+    }
+    return bodies
+    // activeLegend() reads atlasRef (stable across a session); `view`/groupAssign
+    // change ref on every relayout, which is what should retrigger this.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nebulaOn, groupStrength, view, groupAssign])
+
+  // Arriving in a nebula blooms it open (remove from folded) and refocuses the
+  // inspector on it (Plan H2b hero beat).
+  useEffect(() => {
+    const g = groupAssignRef.current?.get(currentId ?? '')
+    if (g != null) setFoldedGroups((s) => (s.has(g) ? new Set([...s].filter((k) => k !== g)) : s))
+    setFocusedNebula(null)
+  }, [currentId])
+
+  // The nebula shown in the rail inspector (Plan H2b): the focused/locked one, or
+  // the current node's by default. Members + metadata over the full view.
+  const inspectedNebulaInfo = useMemo<NebulaInfo | null>(() => {
+    if (!nebulaOn || !view || !groupAssign) return null
+    const key = focusedNebula ?? (currentId ? groupAssign.get(currentId) ?? null : null)
+    if (key == null) return null
+    const members = view.nodes.filter((n) => groupAssign.get(n.id) === key)
+    if (!members.length) return null
+    const byType: Record<string, number> = {}
+    let yMin = Infinity
+    let yMax = -Infinity
+    for (const n of members) {
+      byType[n.type] = (byType[n.type] ?? 0) + 1
+      const y = n.properties['Year']
+      if (typeof y === 'number') {
+        yMin = Math.min(yMin, y)
+        yMax = Math.max(yMax, y)
+      }
+    }
+    const top = [...members]
+      .filter((n) => n.pagerank != null)
+      .sort((a, b) => (b.pagerank ?? 0) - (a.pagerank ?? 0))
+      .slice(0, 6)
+      .map((n) => ({ id: n.id, name: n.name }))
+    return {
+      key,
+      count: members.length,
+      byType,
+      yearRange: yMin <= yMax ? ([yMin, yMax] as [number, number]) : null,
+      top,
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nebulaOn, view, groupAssign, focusedNebula, currentId])
+
   if (!view || !currentId || !display) {
     return (
       <Box sx={{ position: 'fixed', inset: 0, bgcolor: '#02030a', display: 'grid', placeItems: 'center' }}>
@@ -787,17 +1158,55 @@ export default function App() {
   const selectedNode = selectedId ? view.nodeById.get(selectedId) ?? null : null
   const nextHopNode = traveling ? view.nodeById.get(route[0]) ?? null : null
   const destinationNode = traveling ? view.nodeById.get(route[route.length - 1]) ?? null : null
-  // displayGraph = the decluttered scene the viewport renders; the HUD/panel
-  // still get the full `view` so the Links list shows every edge.
-  const displayGraph = display.display
+  // The nebula the rail inspector reflects: the focused/locked one, else the
+  // current node's (Plan H2b). Folding is a pure visibility mask (no relayout).
+  const currentGroup = groupAssign?.get(currentId) ?? null
+  const inspectedNebula = focusedNebula ?? currentGroup
+  // displayGraph = the decluttered (and fold-masked) scene the viewport renders;
+  // the HUD/panel still get the full `view` so the Links list shows every edge.
+  const displayGraph =
+    foldedGroups.size && groupAssign
+      ? maskFoldedGroups(
+          display.display,
+          groupAssign,
+          foldedGroups,
+          new Set([currentId, ...(selectedId ? [selectedId] : [])]),
+        )
+      : display.display
+  // Tag each body with its fold/focus/hover state for the scene.
+  const sceneNebulae = nebulae.map((b) => ({
+    ...b,
+    folded: foldedGroups.has(b.key),
+    focused: b.key === inspectedNebula,
+    hovered: b.key === hoveredNebula,
+  }))
   const visibleEdgeIds = display.visibleEdgeIds
+
   // The plotted course as a "route" emphasis — its nodes + connecting edges,
-  // rendered with a distinct route skin (see scene/RouteHighlight). A general
-  // emphasis shape so neighbourhood "nebula" highlights can reuse it later.
+  // rendered with a distinct route skin (see scene/RouteHighlight).
   const routeEmphasis =
     plottedRoute.length > 1
       ? { kind: 'route' as const, nodeIds: plottedRoute, edgeIds: [...pathEdgeIds(view, plottedRoute)] }
       : null
+
+  // The inspected nebula's VISIBLE members highlighted in place (Plan H3) — the
+  // cheap "mark this field" overlay, tinted with the nebula skin. Only when the
+  // user toggles it on; folded members aren't visible so can't be lit.
+  const nebulaEmphasis =
+    highlightNebula && inspectedNebula && groupAssign
+      ? (() => {
+          const ids = new Set(
+            displayGraph.nodes.filter((n) => groupAssign.get(n.id) === inspectedNebula).map((n) => n.id),
+          )
+          if (!ids.size) return null
+          const edgeIds = displayGraph.edges
+            .filter((e) => ids.has(e.source) && ids.has(e.target))
+            .map((e) => e.id)
+          return { kind: 'nebula' as const, nodeIds: [...ids], edgeIds }
+        })()
+      : null
+  // Nebula first, route last → the route wins on any shared member.
+  const emphases = [nebulaEmphasis, routeEmphasis].filter((e): e is Emphasis => e != null)
 
   // Locks stay live in flight, with the destination always held; parked,
   // the inspected node keeps its reticle even when it falls outside the
@@ -857,7 +1266,14 @@ export default function App() {
           hoveredEdgeId={doorsClosed ? null : hoveredEdgeId}
           maxTags={maxTags}
           selectionPaused={viewMode !== 'proximity' || doorsClosed}
-          emphasis={routeEmphasis}
+          emphases={emphases}
+          nebulae={doorsClosed || liveLayout ? [] : sceneNebulae}
+          onSelectNebula={handleSelectNebula}
+          onHoverNebula={handleHoverNebula}
+          liveLayout={liveLayout}
+          reformSim={reformSim}
+          reformSteps={REFORM_STEPS}
+          onReformDone={onReformDone}
           following={following}
           followSignal={followSignal}
           recenterSignal={recenterSignal}
@@ -916,7 +1332,31 @@ export default function App() {
         onPlotCourse={handlePlotCourse}
         onTravelCourse={handleTravelCourse}
         onClearCourse={handleClearCourse}
+        tours={tours}
         onStartTour={handleStartTour}
+        sourceChoice={sourceChoice}
+        demos={demos}
+        onSwitchUniverse={switchUniverse}
+        onLoadBundleUrl={handleLoadBundleUrl}
+        onPickLocalBundle={handlePickLocalBundle}
+        nebulaOn={nebulaOn}
+        nebulaLabel={nebulaLabel}
+        groupStrength={groupStrength}
+        nebulaSpacing={nebulaSpacing}
+        watchReform={watchReform}
+        onToggleNebula={handleToggleNebula}
+        onGroupStrength={handleGroupStrength}
+        onNebulaSpacing={handleNebulaSpacing}
+        onToggleWatchReform={() => setWatchReform((w) => !w)}
+        onFoldDistant={handleFoldDistant}
+        nebulaInfo={inspectedNebulaInfo}
+        nebulaColor={inspectedNebula ? groupColor(inspectedNebula, activeLegend().colors.communityPalette) : '#9af7d0'}
+        nebulaFolded={inspectedNebula ? foldedGroups.has(inspectedNebula) : false}
+        nebulaIsCurrent={inspectedNebula != null && inspectedNebula === currentGroup}
+        onSetNebulaFolded={handleSetNebulaFolded}
+        focusedNebula={focusedNebula}
+        nebulaHighlight={highlightNebula}
+        onToggleNebulaHighlight={() => setHighlightNebula((v) => !v)}
         tourActive={tour.tour !== null}
       />
       <TourPanel

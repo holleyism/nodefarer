@@ -22,6 +22,7 @@ type Config struct {
 	CORSOrigins []string // allowed web origins
 	RateRPS     int      // per-IP request budget / minute
 	AuthToken   string   // optional static bearer gate (Firebase swaps in later)
+	AtlasPath   string   // optional external Atlas JSON; empty = use the embedded one
 }
 
 func env(key, def string) string {
@@ -40,6 +41,7 @@ func Load() (Config, error) {
 		Neo4jDatabase: env("NEO4J_DATABASE", "neo4j"),
 		VectorIndex:   env("VECTOR_INDEX", "work_embedding"),
 		AuthToken:     os.Getenv("AUTH_TOKEN"),
+		AtlasPath:     os.Getenv("ATLAS_PATH"),
 	}
 	c.CORSOrigins = strings.Split(env("CORS_ORIGINS", "http://localhost:5173,http://localhost:5174"), ",")
 	rps, err := strconv.Atoi(env("RATE_RPS", "120"))

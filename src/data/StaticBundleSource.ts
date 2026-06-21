@@ -1,3 +1,4 @@
+import type { Legend } from './atlas'
 import type { Bundle, BundleEdge, BundleNode } from './bundle'
 import type { Candidate, EntryMode, ExpandRule, GraphSource, PathResult, Predicate, View, ViewBounds } from './GraphSource'
 import { deriveSchema, type GraphSchema } from './graphSchema'
@@ -20,9 +21,13 @@ export class StaticBundleSource implements GraphSource {
   private bnode = new Map<string, BundleNode>()
   private bedge = new Map<string, BundleEdge>()
   private adj = new Map<string, { edgeId: string; other: string }[]>()
-  private mat = new Materializer()
+  private mat: Materializer
 
-  constructor(private bundle: Bundle) {
+  constructor(
+    private bundle: Bundle,
+    legend?: Legend,
+  ) {
+    this.mat = new Materializer(legend)
     for (const n of bundle.nodes) this.bnode.set(n.id, n)
     for (const e of bundle.edges) {
       this.bedge.set(e.id, e)

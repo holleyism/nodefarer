@@ -1,25 +1,72 @@
-import type { Graph, GraphEdge, GraphNode, NodeType } from '../types'
+import type { Graph, GraphEdge, GraphNode } from '../types'
+import type { Legend } from './atlas'
 import type { BundleEdge, BundleNode } from './bundle'
 import type { Predicate, View, ViewBounds } from './GraphSource'
 import { compareEdges, type EdgeSortKey } from './edgeSort'
 import { shortestPath } from './shortestPath'
 
 // Shared bundle→renderable mapping + View assembly, used by BOTH the static and
-// API sources so the scene behaves identically against either. Community colour
-// is a *pure function of the id* (modulo the palette) so it's stable regardless
-// of which nodes have arrived — the API streams communities incrementally.
+// API sources so the scene behaves identically against either. The *meaning* of
+// the mapping — node colours, which inspector properties to show, and what
+// counts as a "wormhole" — comes from the Atlas `legend` (Plan G1), not module
+// constants. Community colour is a *pure function of the id* (modulo the
+// palette) so it's stable regardless of which nodes have arrived — the API
+// streams communities incrementally.
 
-const COMMUNITY_COLORS = [
-  '#66b8ff', '#ffb86b', '#7dffa8', '#ff7de9', '#fff37d',
-  '#9d8bff', '#6bffe0', '#ff8a8a', '#b8ff6b', '#7da9ff',
-  '#ff9d5c', '#5cffd6', '#d68bff', '#a8ff7d', '#7d8bff',
-]
-const TYPE_COLORS: Record<NodeType, string> = {
-  work: '#66b8ff', // works are normally coloured by community
-  author: '#8fa9c8',
-  concept: '#7dffa8',
-  venue: '#ffd37d',
-  institution: '#ff9db1',
+// The built-in legend, used when no Atlas manifest is present (synthetic
+// fallback bundle, smoke tests, or a missing/invalid manifest.json). It encodes
+// exactly what was hardcoded here before G1; public/manifest.json mirrors it.
+export const DEFAULT_LEGEND: Legend = {
+  wormhole: {
+    basis: 'edgeKind',
+    enabled: true,
+    kind: 'semantic',
+    similarityProp: 'Similarity',
+    color: '#b98bff',
+  },
+  nebula: {
+    enabled: false,
+    basis: 'property',
+    key: 'Field',
+    centroidArrangement: 'sphere',
+    groupStrength: 0,
+    color: '#9af7d0',
+  },
+  colors: {
+    communityPalette: [
+      '#66b8ff', '#ffb86b', '#7dffa8', '#ff7de9', '#fff37d',
+      '#9d8bff', '#6bffe0', '#ff8a8a', '#b8ff6b', '#7da9ff',
+      '#ff9d5c', '#5cffd6', '#d68bff', '#a8ff7d', '#7d8bff',
+    ],
+    typeColors: {
+      work: '#66b8ff', // works are normally coloured by community
+      author: '#8fa9c8',
+      concept: '#7dffa8',
+      venue: '#ffd37d',
+      institution: '#ff9db1',
+    },
+  },
+  nodeTypes: {
+    work: { radius: 2.0 },
+    concept: { radius: 1.6 },
+    venue: { radius: 1.5 },
+    institution: { radius: 1.4 },
+    author: { radius: 1.2 },
+  },
+  propertyDisplay: {
+    work: [
+      { source: 'year', label: 'Year' },
+      { source: 'field', label: 'Field' },
+      { source: 'cited_by', label: 'Cited by' },
+      { source: 'community', label: 'Community' },
+    ],
+    concept: [{ source: 'level', label: 'Level' }],
+    venue: [{ source: 'venue_type', label: 'Type' }],
+    institution: [
+      { source: 'country', label: 'Country' },
+      { source: 'inst_type', label: 'Type' },
+    ],
+  },
 }
 
 function coerce(v: unknown): string | number {
@@ -27,35 +74,29 @@ function coerce(v: unknown): string | number {
   return String(v)
 }
 
-function communityColor(c: number): string {
-  const L = COMMUNITY_COLORS.length
-  return COMMUNITY_COLORS[((c % L) + L) % L]
+function communityColor(c: number, palette: string[]): string {
+  const L = palette.length
+  return palette[((c % L) + L) % L]
 }
 
-function displayProps(b: BundleNode): Record<string, string | number> {
+function displayProps(b: BundleNode, legend: Legend): Record<string, string | number> {
   const p: Record<string, string | number> = {}
-  const put = (k: string, v: unknown) => {
-    if (v != null && v !== '') p[k] = coerce(v)
-  }
-  switch (b.type) {
-    case 'work':
-      put('Year', b.year)
-      put('Field', b.field)
-      put('Cited by', b.cited_by)
-      put('Community', b.community)
-      break
-    case 'concept':
-      put('Level', b.level)
-      break
-    case 'venue':
-      put('Type', b.venue_type)
-      break
-    case 'institution':
-      put('Country', b.country)
-      put('Type', b.inst_type)
-      break
+  for (const { source, label } of legend.propertyDisplay[b.type] ?? []) {
+    const v = b[source]
+    if (v != null && v !== '') p[label] = coerce(v)
   }
   return p
+}
+
+// Whether a bundle edge is a "wormhole" per the legend. For `edgeKind` (today),
+// that's a match on the edge's kind ('semantic'); `crossCommunity` needs node
+// community context not available here, so it's deferred (no current Atlas uses
+// it) — fall back to the edge's own kind.
+function isWormhole(b: BundleEdge, legend: Legend): boolean {
+  const w = legend.wormhole
+  if (!w.enabled) return false
+  if (w.basis === 'edgeKind') return b.kind === w.kind
+  return b.kind === 'semantic'
 }
 
 // Caches materialized instances by id so positions assigned by the layout
@@ -64,10 +105,15 @@ export class Materializer {
   private rnode = new Map<string, GraphNode>()
   private redge = new Map<string, GraphEdge>()
 
+  constructor(private legend: Legend = DEFAULT_LEGEND) {}
+
   node(b: BundleNode): GraphNode {
     const cached = this.rnode.get(b.id)
     if (cached) return cached
-    const color = b.community != null ? communityColor(b.community) : TYPE_COLORS[b.type]
+    const color =
+      b.community != null
+        ? communityColor(b.community, this.legend.colors.communityPalette)
+        : this.legend.colors.typeColors[b.type]
     // Some OpenAlex records have no display_name — fall back to the id.
     const node: GraphNode = {
       id: b.id,
@@ -76,7 +122,7 @@ export class Materializer {
       community: b.community,
       pagerank: b.pagerank,
       color,
-      properties: displayProps(b),
+      properties: displayProps(b, this.legend),
     }
     this.rnode.set(b.id, node)
     return node
@@ -85,10 +131,17 @@ export class Materializer {
   edge(b: BundleEdge): GraphEdge {
     const cached = this.redge.get(b.id)
     if (cached) return cached
+    // The legend decides what's a wormhole; we normalize `kind` to the canonical
+    // wormhole flag here so all downstream code (budget, edge sort, scene) keys
+    // off one bit instead of re-deriving the legend.
+    const worm = isWormhole(b, this.legend)
     const props: Record<string, string | number> = {}
-    if (b.kind === 'semantic') {
+    if (worm) {
       const sim = b.props?.similarity ?? b.props?.Similarity
-      if (sim != null) props.Similarity = sim as string | number
+      const simKey =
+        (this.legend.wormhole.basis === 'edgeKind' && this.legend.wormhole.similarityProp) ||
+        'Similarity'
+      if (sim != null) props[simKey] = sim as string | number
     } else if (b.props) {
       for (const [k, v] of Object.entries(b.props)) props[k] = coerce(v)
     }
@@ -96,7 +149,7 @@ export class Materializer {
       id: b.id,
       source: b.source,
       target: b.target,
-      kind: b.kind,
+      kind: worm ? 'semantic' : 'structural',
       rel: b.rel,
       label: b.label,
       props,
@@ -276,6 +329,33 @@ export function egoView(view: View, currentId: string): View {
   const keep = new Set<string>([...view.corridor, currentId])
   for (const nb of view.neighbors.get(currentId) ?? []) keep.add(nb)
   const nodes = view.nodes.filter((n) => keep.has(n.id))
+  const ids = new Set(nodes.map((n) => n.id))
+  const edges = view.edges.filter((e) => ids.has(e.source) && ids.has(e.target))
+  const addedBy = new Map([...view.addedBy].filter(([id]) => ids.has(id)))
+  return assembleView(nodes, edges, {
+    anchorId: view.anchorId,
+    corridor: view.corridor.filter((id) => ids.has(id)),
+    addedBy,
+    bounds: view.bounds,
+  })
+}
+
+// Fold collapsed nebulae (Plan H2b): hide the member nodes (and their edges) of
+// any group in `folded`, leaving only the cloud body to represent them. Pure
+// render-time mask over the already-laid-out view — folding/unfolding is just
+// visibility (the cluster layout already placed everyone), so no relayout. `keep`
+// (current/selected) is never hidden.
+export function maskFoldedGroups(
+  view: View,
+  groupOf: Map<string, string>,
+  folded: Set<string>,
+  keep: Set<string>,
+): View {
+  const hidden = (n: GraphNode) => {
+    const g = groupOf.get(n.id)
+    return g != null && folded.has(g) && !keep.has(n.id)
+  }
+  const nodes = view.nodes.filter((n) => !hidden(n))
   const ids = new Set(nodes.map((n) => n.id))
   const edges = view.edges.filter((e) => ids.has(e.source) && ids.has(e.target))
   const addedBy = new Map([...view.addedBy].filter(([id]) => ids.has(id)))

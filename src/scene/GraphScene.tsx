@@ -3,6 +3,8 @@ import { Stars } from '@react-three/drei'
 import type { Graph, GraphNode } from '../types'
 import { Nodes } from './Nodes'
 import { Edges } from './Edges'
+import { Nebulae, type NebulaBody } from './Nebulae'
+import { LayoutReform } from './LayoutReform'
 import { EdgeHighlights } from './EdgeHighlights'
 import { Reticles } from './Reticles'
 import { EMPHASIS_COLOR, type Emphasis } from './RouteHighlight'
@@ -19,8 +21,20 @@ interface Props {
   hoveredEdgeId: string | null
   maxTags: number
   selectionPaused: boolean
-  // A plotted-course (or other) highlight set drawn over the scene, or null.
-  emphasis: Emphasis | null
+  // Highlight overlays drawn in place over the existing geometry (Plan H3). Each
+  // contributes its members at its kind's colour; later entries win on overlap
+  // (so a plotted route over a highlighted nebula reads as the route).
+  emphases: Emphasis[]
+  // Volumetric nebula bodies (Plan H2); empty when nebulae are off.
+  nebulae: NebulaBody[]
+  onSelectNebula: (key: string) => void
+  onHoverNebula: (key: string | null) => void
+  // Layout-reform animation (Plan H "watch reform"): a sim ticked in-loop while
+  // `liveLayout` drives node/edge transforms imperatively, kept in phase.
+  liveLayout: boolean
+  reformSim: { tick: () => void; stop: () => void } | null
+  reformSteps: number
+  onReformDone: () => void
   following: boolean
   followSignal: number
   recenterSignal: number
@@ -50,7 +64,14 @@ export function GraphScene({
   hoveredEdgeId,
   maxTags,
   selectionPaused,
-  emphasis,
+  emphases,
+  nebulae,
+  onSelectNebula,
+  onHoverNebula,
+  liveLayout,
+  reformSim,
+  reformSteps,
+  onReformDone,
   following,
   followSignal,
   recenterSignal,
@@ -63,33 +84,44 @@ export function GraphScene({
   onTravel,
   onArrive,
 }: Props) {
-  // The emphasis (plotted route) is drawn as an OVERLAY on the existing geometry:
-  // Edges/Nodes recolour these members in place, so the highlight can't drift to
-  // a different apparent elevation as the view zooms or tilts.
-  const emphasisEdgeIds = useMemo(() => new Set(emphasis?.edgeIds ?? []), [emphasis])
-  const emphasisNodeIds = useMemo(() => new Set(emphasis?.nodeIds ?? []), [emphasis])
-  const emphasisColor = emphasis ? EMPHASIS_COLOR[emphasis.kind] : undefined
+  // Emphases are drawn as an OVERLAY on the existing geometry: Edges/Nodes
+  // recolour these members in place, so a highlight can't drift to a different
+  // apparent elevation as the view zooms or tilts. Build id→colour maps so
+  // multiple kinds (route, nebula) can layer with their own colours.
+  const highlightNodes = useMemo(() => {
+    const m = new Map<string, string>()
+    for (const e of emphases) for (const id of e.nodeIds) m.set(id, EMPHASIS_COLOR[e.kind])
+    return m
+  }, [emphases])
+  const highlightEdges = useMemo(() => {
+    const m = new Map<string, string>()
+    for (const e of emphases) for (const id of e.edgeIds) m.set(id, EMPHASIS_COLOR[e.kind])
+    return m
+  }, [emphases])
 
   return (
     <>
+      {/* First child: ticks the reform sim before any reader's useFrame runs. */}
+      <LayoutReform sim={reformSim} steps={reformSteps} onDone={onReformDone} />
       <color attach="background" args={['#02030a']} />
       <fog attach="fog" args={['#02030a', 150, 1100]} />
       <ambientLight intensity={0.7} />
       <directionalLight position={[200, 300, 100]} intensity={0.8} />
       <Stars radius={1200} depth={400} count={5000} factor={6} saturation={0.4} fade speed={0.4} />
+      <Nebulae bodies={nebulae} onSelect={onSelectNebula} onHover={onHoverNebula} />
       <Edges
         graph={graph}
         currentId={currentNode.id}
-        highlightEdgeIds={emphasisEdgeIds}
-        highlightColor={emphasisColor}
+        highlightEdges={highlightEdges}
+        live={liveLayout}
       />
       <EdgeHighlights graph={graph} pinnedEdgeIds={pinnedEdgeIds} hoveredEdgeId={hoveredEdgeId} />
       <Nodes
         graph={graph}
         selectedId={selectedId}
         currentId={currentNode.id}
-        highlightNodeIds={emphasisNodeIds}
-        highlightColor={emphasisColor}
+        highlightNodes={highlightNodes}
+        live={liveLayout}
         onSelect={onSelect}
         onTravel={onTravel}
       />

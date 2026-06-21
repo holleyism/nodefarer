@@ -4,13 +4,13 @@
   "title": "Idea genealogy & diffusion",
   "subtitle": "Search for an idea — and discover the path that connects it.",
   "bundle": "bundle.json",
-  "entry": { "mode": "node", "id": "W2128084896", "maxNodes": 40 },
+  "entry": { "mode": "node", "id": "@origin", "maxNodes": 40 },
   "steps": [
     {
       "id": "land",
       "title": "An idea, at its origin",
       "body": "1982. A physicist describes how a network of simple units can store and recall memories as the stable states of an energy landscape — \"Neural networks and physical systems with emergent collective computational abilities.\" We've parked on it, with its details open: the neighborhood and the links that fan out from it. This is where the idea begins.",
-      "op": { "kind": "inspect", "id": "W2128084896" },
+      "op": { "kind": "inspect", "id": "@origin" },
       "nextLabel": "Bound the view →"
     },
     {
@@ -30,21 +30,21 @@
       "id": "plot",
       "title": "Plot a course to a modern idea",
       "body": "Does this 1982 model connect to today's AI? We can't see that from here — the answer lives in another field, decades on. So we search for it — \"Attention Is All You Need\" — and ask for a course from where we stand. A path exists, and it lights up: just two hops, through a single bridge paper. Nothing was teleported to; the citation graph drew this route.",
-      "op": { "kind": "plot", "to": "W2626778328" },
+      "op": { "kind": "plot", "to": "@destination" },
       "nextLabel": "Inspect the bridge →"
     },
     {
       "id": "bridge",
       "title": "The bridge",
       "body": "Before we travel, look at the paper in the middle — a 2020 review of where deep learning is headed. It's the one work that cites both Hopfield's 1982 model and the transformer, which is exactly why a path exists at all. This is the node that ties the two eras together.",
-      "op": { "kind": "inspect", "id": "W3022112205", "focus": true },
+      "op": { "kind": "inspect", "id": "@bridge", "focus": true },
       "nextLabel": "On to the destination →"
     },
     {
       "id": "destination",
       "title": "Where it ends up",
       "body": "And the far end of the course: \"Attention Is All You Need\" — the architecture behind modern language models. A 1982 model of physical memory sits just two citations away from the transformer.",
-      "op": { "kind": "inspect", "id": "W2626778328", "focus": true },
+      "op": { "kind": "inspect", "id": "@destination", "focus": true },
       "nextLabel": "Make the journey →"
     },
     {

@@ -1,3 +1,4 @@
+import type { AtlasAnchor } from './atlas'
 import type { EntryMode, ExpandRule, Predicate } from './GraphSource'
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -80,6 +81,76 @@ export interface Tour {
   // op is usually omitted (entry already placed the camera).
   entry: EntryMode
   steps: TourStep[]
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Anchor resolution (Plan G2). A tour step references a node either by raw id or
+// by an Atlas anchor — a string `@name` resolved against the Atlas's `anchors`
+// map at load. So a tour reads `@origin` / `@bridge` / `@destination` instead of
+// hardcoded OpenAlex ids; the Atlas binds the names to this dataset. (Anchors
+// give tours named, validated handles WITHIN an Atlas — not cross-dataset
+// portability; tours stay dataset-bound.) Raw ids pass through unchanged, so a
+// tour can mix anchors and one-off ids. An unknown `@name` is left as-is with a
+// warning, surfacing the authoring error rather than silently misnavigating.
+// ─────────────────────────────────────────────────────────────────────────────
+
+function resolveAnchor(v: string, anchors: Record<string, AtlasAnchor>): string {
+  if (v[0] !== '@') return v // a raw node id
+  const name = v.slice(1)
+  const a = anchors[name]
+  if (typeof a === 'string') return a
+  console.warn(
+    `tour: anchor @${name} ${a ? 'is a query anchor (not yet supported)' : 'is undefined'}; leaving the reference unresolved`,
+  )
+  return v
+}
+
+const optAnchor = (v: string | undefined, anchors: Record<string, AtlasAnchor>) =>
+  v == null ? v : resolveAnchor(v, anchors)
+
+function resolveOp(op: TourOp, anchors: Record<string, AtlasAnchor>): TourOp {
+  switch (op.kind) {
+    case 'land':
+    case 'inspect':
+      return { ...op, id: resolveAnchor(op.id, anchors) }
+    case 'plot':
+    case 'travel':
+      return { ...op, to: resolveAnchor(op.to, anchors) }
+    case 'expand':
+      return { ...op, nodeId: resolveAnchor(op.nodeId, anchors), face: optAnchor(op.face, anchors) }
+    case 'collapse':
+      return {
+        ...op,
+        nodeId: resolveAnchor(op.nodeId, anchors),
+        fromId: resolveAnchor(op.fromId, anchors),
+      }
+    case 'look':
+      return {
+        ...op,
+        focus: optAnchor(op.focus, anchors),
+        edge: op.edge
+          ? {
+              ...op.edge,
+              from: resolveAnchor(op.edge.from, anchors),
+              to: resolveAnchor(op.edge.to, anchors),
+            }
+          : undefined,
+      }
+    default:
+      return op // travelCourse, filter — no node references
+  }
+}
+
+// Resolve every `@anchor` reference in a tour (entry + each step's op) against
+// the Atlas anchors, returning a new Tour with concrete node ids. Called once at
+// tour load, before handing the tour to the playback engine.
+export function resolveTourAnchors(tour: Tour, anchors: Record<string, AtlasAnchor> = {}): Tour {
+  const entry =
+    tour.entry.mode === 'node' && tour.entry.id != null
+      ? { ...tour.entry, id: resolveAnchor(tour.entry.id, anchors) }
+      : tour.entry
+  const steps = tour.steps.map((s) => (s.op ? { ...s, op: resolveOp(s.op, anchors) } : s))
+  return { ...tour, entry, steps }
 }
 
 // Panel controls are DERIVED by the playback engine, not stored per-step, so an

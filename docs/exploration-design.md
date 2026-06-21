@@ -29,7 +29,69 @@ build the exploration UX once, demo it offline, scale it live. The agent
 
 ---
 
-## 2. The `GraphSource` / `View` contract  🔜
+## 2. The Atlas — datasets are self-describing  🔜
+
+**Problem this solves.** The demos, the colors, the meaning of "wormhole" and
+"nebula" were all implicitly bound to *one* dataset (the Hopfield→attention
+OpenAlex slice). Swap the data and the demos break, the legend is wrong, and the
+lens semantics no longer apply. The engine shouldn't *know* what a nebula means;
+the **dataset** should declare it.
+
+**The object.** An **Atlas** is the top-order metadata object that makes a
+dataset self-describing and self-demoing. It is a *parameterized lens over a
+source* — the source is **not** the Atlas:
+
+```
+Atlas {
+  id, name, description, schemaVersion, provenance, license
+  source:   { kind: 'bundle' | 'api', url, params, auth? }   // where the data lives
+  capabilities: { embeddings, betweenness, communities, ... } // what the data can support
+  legend:   { wormhole: <edgeLens>, nebula: <groupingLens>, nodeTypes, colors, propertyDisplay }
+  anchors:  { <name>: NodeId | Query }                        // named handles, e.g. origin → W2128084896
+  tours:    Tour[]                                            // declarative, bound to THIS dataset
+}
+```
+
+- **`legend` is the keystone.** What a nebula or a wormhole *means* is config,
+  not code. The engine implements the *mechanic*; the legend says *which set /
+  which edges* for this dataset. The "is a nebula semantic or community?" debate
+  collapses to one field in the grouping-lens spec, chosen per Atlas (see §4.4).
+  - `wormhole` = an **edge lens**: `{ basis: 'edgeKind', kind: 'semantic', minSimilarity }`
+    — or on another dataset `{ basis: 'crossCommunity', relType: 'cites' }`.
+  - `nebula` = a **grouping + layout lens** (§4.4) — not an overlay.
+  - **Lenses are optional, two ways.** Each lens carries an `enabled` default in
+    the legend so a **simple dataset** can ship with wormholes and/or nebulae off
+    entirely; and the user gets a **console toggle** for each, so someone easing
+    into the mental model can start with a plain graph and turn the lenses on
+    when ready. (Disabled nebula ⇒ pure edge-weight layout, `groupStrength` 0.)
+- **`tours` belong to the Atlas, hard-bound to the dataset.** A tour about
+  Hopfield→attention is *about that data*; it does not port to another corpus
+  (the semantics might transfer but the specifics break — so we don't pretend).
+  Tours are declarative Steps over the op vocabulary (narration + selection +
+  view change + travel + nebula reveal/collapse); a future authoring UI emits
+  them; the agent (Plan F) can generate them. `anchors` give tours named handles
+  *within* an Atlas — for reuse and load-time validation, **not** portability.
+  **Tour ops are node-relative by contract** — they reference node ids/anchors
+  and frame the camera *relative to nodes*, never absolute coordinates, because
+  the force layout is non-deterministic and positions differ per run.
+- **`capabilities`** gate engine feasibility only (e.g. no embeddings → the
+  wormhole lens can't function), not tour visibility (tours don't port, so
+  there's nothing to gate).
+
+**One Atlas per backend — and that's not a limit.** A backend ships one
+canonical Atlas (`GET /atlas`); a `GET /atlases` catalog returns a one-element
+list, leaving room to grow. Multiple Atlases can point at the *same* backend
+with different `params`/`legend`/`tours` → two "worlds" over one store. Atlases
+are **portable documents**: the static track carries `manifest.json` beside
+`bundle.json` (co-resident — same schema, different transport).
+
+**UI.** A "choose your universe" entry surface picks an Atlas (from a backend
+catalog or a bundle URL/file) and persists it (localStorage) — retiring the
+build-time `VITE_API_URL` coupling for runtime selection.
+
+---
+
+## 3. The `GraphSource` / `View` contract  🔜
 
 The interface both sources satisfy, the Go API serves, and the agent emits.
 
@@ -68,9 +130,9 @@ the agent generates `View`/`ExpandRule` objects from natural language.
 
 ---
 
-## 3. Core mechanics
+## 4. Core mechanics
 
-### 3.1 Entry modes (the "initial query")
+### 4.1 Entry modes (the "initial query")
 There isn't one initial query — there are **three entry modes**, and each story
 picks one:
 - **Land-on-node (ego)** — arrive *on* a node; show a bounded, ranked N-hop
@@ -80,7 +142,7 @@ picks one:
 - **Search** — text (name) or **semantic** (vector kNN over abstracts) → a
   candidate list → pick → land.
 
-### 3.2 Expansion / collapse + the corridor
+### 4.2 Expansion / collapse + the corridor
 - **Expansion** is typed, ranked, capped (`ExpandRule`). Incremental layout:
   pin shown nodes, settle only the new ones; the blast-doors cover the recompute
   (their real functional job). ✅
@@ -104,16 +166,54 @@ picks one:
   weighted**: nodes matching the active story's filter/relType stay salient
   longer. This is the concrete expression of "journeys-as-memory."
 
-### 3.3 Filtering
+### 4.3 Filtering
 - **Node:** type, year range, field, community, centrality (pagerank; later
   betweenness for brokers).
 - **Edge:** relType, concept score, similarity threshold.
 - Same `predicate` both ways: `ApiSource` re-queries; `StaticBundleSource`
   masks the in-memory bundle.
 
+### 4.4 Nebulae — a grouping is a **layout control point**  🔜
+A nebula is **not** a glow painted on top of a force layout. It is a grouping
+that **decides where nodes go** — change the grouping parameter and the universe
+**re-spatializes** into clouds. Three roles compose:
+
+1. **Spatialization authority** *(the heart)* — the grouping acts as a layout
+   force: members of a nebula attract to a shared centroid. Layout is a
+   **continuum**, not a mode switch — a `groupStrength` parameter blends it with
+   the existing edge-weight force: `0` = today's pure force-directed layout, `1`
+   = a near-hard spatial partition by group (edges barely pull, clean clouds),
+   mid = both. Centroids arrange by group kind: a **ring/grid** for categorical
+   groups, an **axis** for an ordered parameter (age, income, year) so the cloud
+   sequence reads left→right. This is what makes "drag a parameter, watch the
+   graph reorganize" possible, and it's qualitatively different from force layout.
+2. **Rendering / LOD** — how a group looks: individuals clustered tightly, or
+   (zoomed out / collapsed) folded into one volumetric **cloud body** standing
+   in for N nodes, reopenable.
+3. **Highlight** — mark a group without moving anything. This is the only role
+   the existing `Emphasis` overlay (`RouteHighlight.tsx`, `kind:'nebula'`)
+   covers; it's the smallest of the three and no longer the definition.
+
+**Legend spec (per Atlas):** `nebula: { enabled, basis: 'property'|'community'|'semanticKnn',
+key, bucketing?, centroidArrangement: 'ring'|'axis', groupStrength, lod }`. The
+"what is a nebula" choice is now one field here, and `groupStrength`/the grouping
+parameter can be a **live UI control**. Nebulae (like wormholes) can be **disabled
+per-dataset** (`enabled: false` ⇒ pure edge-weight layout) and **toggled off by
+the user** from the console — so a simple dataset, or someone new to the mental
+model, can start with a plain graph and switch the lens on when ready.
+
+**Animated relayout + optional blast-doors.** Relayout on a parameter change runs
+behind the blast doors by default (their real job). But a console toggle can
+**leave the doors open** so you *watch the cosmos reform*. For that to be
+mesmerizing rather than jittery, the relayout must **interpolate** node positions
+(and ease the camera) old→new, not expose raw force-tick noise.
+
+`collapseNebula` / `revealNebula` are tour ops (§4.2 vocabulary) — tours
+orchestrate which nebulae are folded at each narrative beat.
+
 ---
 
-## 4. Story catalog
+## 5. Story catalog
 
 All five archetypes captured. Each lists the question, entry mode, expand/
 collapse mechanic, the dataset features it leans on, and any **new analytics**
@@ -136,24 +236,37 @@ below; the rest are stubs to expand when we build more demos.
 
 ### Walk-through (i) — Demo bundle: "Idea genealogy & the wormhole"
 *Source: `StaticBundleSource` over the demo bundle. Hero narrative:
-Hopfield 1982 → modern attention. Shows entry, filter, expand/collapse, and a
-semantic edge — all offline.*
+Hopfield 1982 → modern attention. Shows entry, filter, expand/collapse, the
+**field nebulae**, and a semantic edge — all offline.*
 
-1. **Land** on *Hopfield 1982* (W2128084896) — egocentric camera parks on the
-   node; reticles tag the brightest neighbors.
-2. **Bound the view:** the raw ego-net is noisy, so apply a filter —
-   `relType = cites`, `pagerank ≥ p`, `year ≤ 1995` — collapsing to the
-   high-signal early backbone. (Demonstrates **filtering** on the bundle.)
-3. **Diffuse forward:** travel along citations toward the present; at each hop
-   the corridor extends and off-corridor branches fold into faint nebulae.
-   (Demonstrates **expand + corridor auto-collapse**.)
-4. **The bridge:** arrive at *Ramsauer 2021* ("Hopfield Networks is All You
-   Need"). Its **wormhole** edge to the transformer lineage lights up (violet
-   conduit — ✅ already built).
-5. **Cross it:** jump the wormhole into the ML galaxy; land on the transformer
-   lineage in a visibly distant community. The NodePanel's wormhole sub-panel
-   shows similarity + basis. (Demonstrates the **semantic edge** + the payoff
-   "why a graph this far apart is actually related.")
+**The point the old tour hid:** the wonder is *distance* — an idea born in
+neuroscience ends up structurally light-years away in CS/engineering, and the
+connection is surprising and hard-won. Three tidy hops and ~15 unlabeled
+community colors erased that. **Field nebulae restore it** — the hero Atlas
+groups nebulae by **`field`** (named, legible — not raw Louvain community, which
+is too granular and unnamed), so crossing a boundary becomes a visible, earned
+act. (This makes the hero Atlas itself the layout-nebula showcase; no second
+dataset required.)
+
+1. **Land inside the Neuroscience cloud** on *Hopfield 1982* (W2128084896) — its
+   field-mates are visibly spatially together. *Engineering* and *Computer
+   Science* sit at a felt distance as **collapsed nebulae** — you can see
+   something is over there, but it's folded.
+2. **Bound the view:** filter the noisy local cloud — `relType = cites`,
+   `pagerank ≥ p`, `year ≤ 1995` — to the high-signal early backbone.
+   (Demonstrates **filtering**.)
+3. **Diffuse forward:** travel along citations toward the present; the corridor
+   extends and off-corridor branches fold into faint nebulae. (Demonstrates
+   **expand + corridor auto-collapse**.)
+4. **Cross a boundary:** as the journey discovers the bridge node, the
+   destination nebula **blooms** — the CS cloud opens from a folded blob into
+   individual papers. *You watched yourself cross the gulf.* (Demonstrates
+   **nebula reveal as the narrative beat** + **the wormhole** to the transformer
+   lineage lighting up — violet conduit, ✅ already built.)
+5. **Cross the wormhole:** land on the transformer lineage in a visibly distant
+   cloud. The NodePanel's wormhole sub-panel shows similarity + basis.
+   (Demonstrates the **semantic edge** + the payoff "why things this far apart
+   are actually related.")
 6. **Look back:** breadcrumbs render the whole corridor; "paths not taken" sit
    collapsed and reopenable. (Demonstrates **journeys-as-memory**.)
 7. *(Plan F later)* the agent narrates the wormhole and offers "replay as tour."
@@ -180,7 +293,7 @@ possible: overview → drill, live query, brokers, serendipity.*
 
 ---
 
-## 5. Scale stance
+## 6. Scale stance
 - **7-digit (~1–10M)** via an **OpenAlex bulk snapshot** ingest (not API
   snowball) — feasible on the current 64 GB + GPU box. Embeddings at 10M works
   ≈ ~40 GB of vectors + many GPU-hours; Neo4j + vector index at 10M / ~100M
@@ -192,7 +305,7 @@ possible: overview → drill, live query, brokers, serendipity.*
   200k store now**; the bulk ingest (Plan E) runs in parallel and never blocks
   the UX.
 
-## 6. Agent-readiness (Plan F, later)
+## 7. Agent-readiness (Plan F, later)
 `GraphSource` is the agent's action space. Roles when we add it: NL → `View`/
 `ExpandRule`; **explain-this-wormhole** (semantic basis + connecting chain);
 **name/summarize a nebula**; **suggest next hop / surface serendipity**;
@@ -200,7 +313,7 @@ possible: overview → drill, live query, brokers, serendipity.*
 the API agent-addressable from day one; ship the agent as a later layer. It
 augments — manual navigation stays the spine.
 
-## 7. The plans (split)
+## 8. The plans (split)
 - **A — this doc** (stories + contract). ✅ drafted.
 - **B — embeddings/kNN → Neo4j** (vector index + `SIMILAR_TO`), works-only, on
   the 200k store. 🔜 script ready (`ingest/load_embeddings.py`); run when
@@ -212,6 +325,60 @@ augments — manual navigation stays the spine.
 - **E — data scaling**: OpenAlex bulk-snapshot ingest → 7-digit; betweenness +
   multi-resolution communities; 8-digit hardware assessment.
 - **F — agent co-pilot**: NL→View, explain, name, tour. API made agent-ready now.
+- **G — the Atlas** (§2): datasets self-describe via a top-order object
+  (source + legend + anchors + tours). Phased:
+  - **G0** — define the Atlas schema (`src/data/atlas.ts`) + a hand-written
+    `manifest.json` for the current Hopfield bundle that *reproduces today's
+    behavior* (legend = current hardcoded colors/wormhole/property display). No
+    behavior change — validate the model against reality.
+  - **G1** — load it (static track): the legend drives colors / wormhole
+    detection / property display currently hardcoded in `viewBuilder.ts`.
+  - **G2** — externalize tours: move S1 + the wormhole tours from `tour.ts`
+    constants into Atlas `tours` (declarative Steps over the op vocabulary +
+    symbolic `anchors`); `tour.ts` becomes the interpreter.
+  - **G3** — backend APIs: `GET /atlas` + `GET /atlases` (catalog stub); the Go
+    server serves its Atlas co-resident with the Neo4j data; `ApiSource` fetches it.
+  - **G4** — UI "choose your universe" picker; runtime source selection
+    (persisted; `VITE_API_URL` demoted to a bootstrap default).
+  - **G5** — a bundled demo is a **directory** (manifest + data + tours), so we
+    can ship several and a user can load their own. A `demos.json` catalog lists
+    the shipped ones; a user points at a **hosted directory URL** or a **local
+    folder** (File System Access / `webkitdirectory`); the chosen directory is
+    **validated** (manifest parses, data file reachable, listed tours exist)
+    before it loads. `BundleStore` (`src/data/bundleStore.ts`) abstracts where
+    files come from (url / dir-handle / file-map) so the rest of the app reads a
+    universe the same way.
+- **H — nebulae as layout** (§4.4): a grouping that controls spatialization.
+  Depends on G (legend defines the grouping lens). Phased:
+  - **H0** ✅ — layout subsystem: a centroid clustering force in
+    `runForceLayout` (via d3 `forceX/Y/Z`, per-node strength), `groupStrength`
+    continuum, ring/axis centroid arrangement (`src/layout/grouping.ts`), and a
+    **visible animated relayout** (`buildSimulation` ticked over rAF, viewpoint
+    node pinned) for the doors-open "watch the cosmos reform" path.
+  - **H1** ✅ — legend → layout binding: the Atlas `nebula` lens drives the
+    grouping (hero groups by `field`); a NEBULAE console section (on/off +
+    grouping-strength slider + "watch layout reform" toggle); relayout runs
+    behind the (fully-closed) blast doors by default, or visibly when watch is on.
+  - **H2a** ✅ — volumetric **cloud bodies**: each group renders as a soft
+    additive translucent sphere (centre/radius from member positions) with a DOM
+    label (`src/scene/Nebulae.tsx`); colour hashed per group key. So a field
+    reads as a luminous cloud-object, not just regrouped points.
+  - **H2b** ✅ — fold/expand + inspect a nebula. Folding is a pure visibility
+    mask over the clustered layout (`maskFoldedGroups`, no relayout).
+    "Fold distant nebulae" is a one-shot **action** (collapse all but the
+    current). **Click a folded cloud to select it** → lock reticle + a rail
+    **Nebula inspector** (`NebulaPanel`: members, composition, year range,
+    brightest, and a fold/unfold button). Arriving in a field blooms it open
+    (the hero "watched yourself cross the gulf" beat). Nebula labels live in the
+    HUD now — a **hover name readout** + the reticle — not floating `<Html>` in
+    space (that broke the ship-viewport immersion).
+  - **H3** ✅ — in-place highlight overlay (the `Emphasis` role): a toggle in the
+    Nebula inspector tints the inspected nebula's visible members/edges with the
+    nebula colour, layered with the route highlight (the scene's highlight
+    channel is now per-id colour maps, so route amber + nebula teal coexist).
 
 Dependencies: A unblocks C/D/F; B unblocks C. **A + B run in parallel now**;
 both converge into C/D. D can start against `StaticBundleSource` before C exists.
+**G is the next build** (foundation for configurable lenses); **H builds on G** —
+H0 (layout) is the load-bearing piece, and the hero S1 story (§5 walk-through i)
+is the first consumer.

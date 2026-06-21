@@ -1,0 +1,99 @@
+{
+  "schemaVersion": 1,
+  "id": "openalex-hopfield-attention-live",
+  "name": "Idea genealogy: Hopfield → attention (live)",
+  "description": "The live Neo4j-backed view of the OpenAlex citation graph (associative memory → the transformer), served by the Go/Chi backend. Same legend as the bundled demo; data streams from the database via expand/path/similar.",
+  "provenance": "OpenAlex bulk export → Neo4j (PageRank + Louvain communities + abstract-embedding kNN vector index). Served live, not bundled.",
+  "license": "Data: OpenAlex (CC0). App: Apache-2.0.",
+  "source": { "kind": "api", "url": "" },
+  "capabilities": {
+    "communities": true,
+    "embeddings": true,
+    "betweenness": false,
+    "pagerank": true
+  },
+  "legend": {
+    "wormhole": {
+      "basis": "edgeKind",
+      "enabled": true,
+      "kind": "semantic",
+      "similarityProp": "Similarity",
+      "color": "#b98bff"
+    },
+    "nebula": {
+      "enabled": false,
+      "basis": "property",
+      "key": "Field",
+      "centroidArrangement": "sphere",
+      "groupStrength": 0,
+      "color": "#9af7d0"
+    },
+    "colors": {
+      "communityPalette": [
+        "#66b8ff", "#ffb86b", "#7dffa8", "#ff7de9", "#fff37d",
+        "#9d8bff", "#6bffe0", "#ff8a8a", "#b8ff6b", "#7da9ff",
+        "#ff9d5c", "#5cffd6", "#d68bff", "#a8ff7d", "#7d8bff"
+      ],
+      "typeColors": {
+        "work": "#66b8ff",
+        "author": "#8fa9c8",
+        "concept": "#7dffa8",
+        "venue": "#ffd37d",
+        "institution": "#ff9db1"
+      }
+    },
+    "nodeTypes": {
+      "work": { "radius": 2.0 },
+      "concept": { "radius": 1.6 },
+      "venue": { "radius": 1.5 },
+      "institution": { "radius": 1.4 },
+      "author": { "radius": 1.2 }
+    },
+    "propertyDisplay": {
+      "work": [
+        { "source": "year", "label": "Year" },
+        { "source": "field", "label": "Field" },
+        { "source": "cited_by", "label": "Cited by" },
+        { "source": "community", "label": "Community" }
+      ],
+      "concept": [{ "source": "level", "label": "Level" }],
+      "venue": [{ "source": "venue_type", "label": "Type" }],
+      "institution": [
+        { "source": "country", "label": "Country" },
+        { "source": "inst_type", "label": "Type" }
+      ]
+    }
+  },
+  "defaults": {
+    "entryMaxNodes": 120,
+    "edgeBudget": 12,
+    "edgeSort": "pagerank"
+  },
+  "anchors": {
+    "origin": "W2128084896",
+    "bridge": "W3022112205",
+    "destination": "W2626778328"
+  },
+  "tours": [
+    {
+      "file": "tours/s1-idea-genealogy.json",
+      "title": "Idea genealogy & diffusion",
+      "subtitle": "Hopfield 1982 → modern attention"
+    },
+    {
+      "file": "tours/s2-wormhole-bankruptcy.json",
+      "title": "Wormhole: from memory to markets",
+      "subtitle": "Associative memory → corporate bankruptcy"
+    },
+    {
+      "file": "tours/s3-wormhole-astrophysics.json",
+      "title": "Wormhole: from sequences to the cosmos",
+      "subtitle": "Time-series forecasting → gravitational waves"
+    },
+    {
+      "file": "tours/s4-wormhole-plato.json",
+      "title": "Wormhole: from networks to Plato",
+      "subtitle": "Concept learning → Plato’s problem"
+    }
+  ]
+}

@@ -50,18 +50,30 @@ function funnelGeometry(length: number): THREE.LatheGeometry {
 interface EdgesProps {
   graph: Graph
   currentId: string
-  // Edges to draw highlighted (a plotted route), and the highlight colour.
-  highlightEdgeIds?: Set<string>
-  highlightColor?: string
+  // Highlighted edges → their highlight colour (route / nebula overlays may
+  // layer, each with its own colour; Plan H3).
+  highlightEdges?: Map<string, string>
+  // While true, beam transforms are recomputed each frame from the live endpoint
+  // positions (a layout reform in progress), so beams stay glued to the moving
+  // nodes and in phase with the camera instead of lagging React by a frame.
+  live?: boolean
 }
 
-export function Edges({ graph, currentId, highlightEdgeIds, highlightColor }: EdgesProps) {
+export function Edges({ graph, currentId, highlightEdges, live = false }: EdgesProps) {
   const cylGeo = useMemo(() => new THREE.CylinderGeometry(1, 1, 1, 12, 24, true), [])
-  // Latest highlight set + colour, read live inside the frame loop.
-  const hlRef = useRef<Set<string>>(highlightEdgeIds ?? new Set())
-  hlRef.current = highlightEdgeIds ?? hlRef.current
-  const hlColor = useMemo(() => new THREE.Color('#ffce7a'), [])
-  if (highlightColor) hlColor.set(highlightColor)
+  // Latest per-edge highlight colours, read live inside the frame loop.
+  const hlRef = useRef<Map<string, string>>(highlightEdges ?? new Map())
+  hlRef.current = highlightEdges ?? hlRef.current
+  // Cache a THREE.Color per colour string (avoids per-frame allocation).
+  const colorCache = useMemo(() => new Map<string, THREE.Color>(), [])
+  const colorFor = (c: string) => {
+    let col = colorCache.get(c)
+    if (!col) {
+      col = new THREE.Color(c)
+      colorCache.set(c, col)
+    }
+    return col
+  }
   const scratch = useMemo(() => new THREE.Color(), [])
 
   // One material (and, for wormholes, one funnel geometry) per edge so each can
@@ -91,8 +103,10 @@ export function Edges({ graph, currentId, highlightEdgeIds, highlightColor }: Ed
             : makeBeamMaterial('#7d9fd4', INACTIVE_OP, 0, fadeA, fadeB),
           geo: worm ? funnelGeometry(length) : null, // null → shared cylGeo
           scale: (worm ? [1, 1, 1] : [RADIUS, length, RADIUS]) as [number, number, number],
+          len0: length, // beam length at build — for the worm funnel's live scale ratio
           activeF: 0, // animated 0→1 as this edge becomes/stops being a lane
           hlF: 0, // animated 0→1 as this edge becomes/stops being highlighted
+          hlColor: new THREE.Color('#ffce7a'), // current highlight tint (per-edge)
           mid: av.clone().add(bv).multiplyScalar(0.5),
           quat: new THREE.Quaternion().setFromUnitVectors(UP, dir),
         }
@@ -110,6 +124,43 @@ export function Edges({ graph, currentId, highlightEdgeIds, highlightColor }: Ed
     [items],
   )
 
+  // Imperative per-frame transform sync during a reform: rebuild each beam's
+  // position/orientation/length from the live endpoints, so beams stay attached
+  // to the moving nodes and in phase with the camera (no React-cadence lag).
+  const meshes = useRef(new Map<string, THREE.Mesh>())
+  const registerMesh = useRef((id: string, m: THREE.Mesh | null) => {
+    if (m) meshes.current.set(id, m)
+    else meshes.current.delete(id)
+  }).current
+  const liveRef = useRef(live)
+  liveRef.current = live
+  const graphRef = useRef(graph)
+  graphRef.current = graph
+  const itemsRef = useRef(items)
+  itemsRef.current = items
+  const av = useMemo(() => new THREE.Vector3(), [])
+  const bv = useMemo(() => new THREE.Vector3(), [])
+  const dir = useMemo(() => new THREE.Vector3(), [])
+  useFrame(() => {
+    if (!liveRef.current) return
+    const g = graphRef.current
+    for (const it of itemsRef.current) {
+      const a = g.nodeById.get(it.source)
+      const b = g.nodeById.get(it.target)
+      if (!a || !b || a.x == null || b.x == null) continue
+      const m = meshes.current.get(it.id)
+      if (!m) continue
+      av.set(a.x, a.y!, a.z!)
+      bv.set(b.x!, b.y!, b.z!)
+      m.position.copy(av).add(bv).multiplyScalar(0.5)
+      dir.copy(bv).sub(av)
+      const length = dir.length()
+      m.quaternion.setFromUnitVectors(UP, dir.normalize())
+      if (it.worm) m.scale.set(1, length / it.len0, 1)
+      else m.scale.set(RADIUS, length, RADIUS)
+    }
+  })
+
   useFrame((state, delta) => {
     const t = state.clock.elapsedTime
     const k = Math.min(1, delta * 6) // ~0.3s ease toward the active/inactive look
@@ -119,7 +170,9 @@ export function Edges({ graph, currentId, highlightEdgeIds, highlightColor }: Ed
         continue
       }
       const target = it.source === currentId || it.target === currentId ? 1 : 0
-      const hlTarget = hlRef.current.has(it.id) ? 1 : 0
+      const hc = hlRef.current.get(it.id)
+      const hlTarget = hc ? 1 : 0
+      if (hc) it.hlColor.copy(colorFor(hc)) // keep last colour during fade-out
       // Skip work only when fully settled in both the lane and highlight states.
       if (it.activeF === target && it.hlF === hlTarget && hlTarget === 0) continue
       it.activeF += (target - it.activeF) * k
@@ -129,7 +182,7 @@ export function Edges({ graph, currentId, highlightEdgeIds, highlightColor }: Ed
       // Base lane look, then blend toward the highlight colour/brightness.
       scratch.lerpColors(INACTIVE, ACTIVE, it.activeF)
       const baseOp = INACTIVE_OP + (ACTIVE_OP - INACTIVE_OP) * it.activeF
-      it.mat.uColor.copy(scratch).lerp(hlColor, it.hlF)
+      it.mat.uColor.copy(scratch).lerp(it.hlColor, it.hlF)
       it.mat.uOpacity = baseOp + (HIGHLIGHT_OP - baseOp) * it.hlF
     }
   })
@@ -139,6 +192,7 @@ export function Edges({ graph, currentId, highlightEdgeIds, highlightColor }: Ed
       {items.map((it) => (
         <mesh
           key={it.id}
+          ref={(m) => registerMesh(it.id, m)}
           geometry={it.geo ?? cylGeo}
           material={it.mat}
           position={it.mid}

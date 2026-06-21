@@ -1,3 +1,4 @@
+import type { Legend } from './atlas'
 import type { BundleEdge, BundleNode } from './bundle'
 import type { Candidate, EntryMode, ExpandRule, GraphSource, PathResult, Predicate, View } from './GraphSource'
 import { deriveSchema, type GraphSchema } from './graphSchema'
@@ -18,13 +19,15 @@ interface ServerView {
 // code StaticBundleSource uses — only topology (entry/expand/search/neighbors)
 // goes over the wire.
 export class ApiSource implements GraphSource {
-  private mat = new Materializer()
+  private mat: Materializer
 
   constructor(
     private baseUrl: string,
     private token?: string,
+    legend?: Legend,
   ) {
     this.baseUrl = baseUrl.replace(/\/$/, '')
+    this.mat = new Materializer(legend)
   }
 
   private headers(json = false): HeadersInit {
