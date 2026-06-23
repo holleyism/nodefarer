@@ -17,7 +17,7 @@ import type { Bundle } from './data/bundle'
 import { resolveTourAnchors } from './data/tour'
 import type { Tour, TourOp } from './data/tour'
 import { shortestPath } from './data/shortestPath'
-import { runForceLayout, buildSimulation, unpinAll, type ClusterSpec } from './layout/runForceLayout'
+import { runForceLayout, buildSimulation, unpinAll, setLayoutSpacing as setDefaultLayoutSpacing, DEFAULT_LAYOUT_SPACING, type ClusterSpec } from './layout/runForceLayout'
 import { buildClusterSpec, assignGroups, groupColor, DEFAULT_SPACING } from './layout/grouping'
 import type { NebulaBody } from './scene/Nebulae'
 import type { NebulaStub } from './scene/NebulaStubEdges'
@@ -133,6 +133,10 @@ export default function App() {
   const [nebulaOn, setNebulaOn] = useState(false)
   const [groupStrength, setGroupStrength] = useState(0.6)
   const [nebulaSpacing, setNebulaSpacing] = useState(DEFAULT_SPACING)
+  // Base node proximity (edge rest length) — how packed-or-spread the universe
+  // is, independent of nebula grouping. Driven live from the Ship console; the
+  // value is mirrored into the layout module so every relayout picks it up.
+  const [layoutSpacing, setLayoutSpacing] = useState(DEFAULT_LAYOUT_SPACING)
   // How much of a group's members the cloud body must enclose: the percentile of
   // member distances used for its radius. 0.85 ignores cross-field strays so a
   // single outlier doesn't balloon the cloud; 1 makes the cloud encompass EVERY
@@ -195,6 +199,17 @@ export default function App() {
   // mid-flight unlocks it; "follow course" (or journey's end) re-locks.
   const [following, setFollowing] = useState(true)
   const [followSignal, setFollowSignal] = useState(0)
+  // Free-flight: a no-clip flying camera (WASD/arrows + drag-look) that roams
+  // the space between nodes. While on, the ship controller stands down; turning
+  // it off snaps back to the ship parked over the current node. `freeFlightEnter`
+  // is bumped on each entry so the flight gaze re-seeds from the live camera.
+  const [freeFlight, setFreeFlight] = useState(false)
+  const [freeFlightEnter, setFreeFlightEnter] = useState(0)
+  const toggleFreeFlight = () =>
+    setFreeFlight((on) => {
+      if (!on) setFreeFlightEnter((s) => s + 1)
+      return !on
+    })
   // Bumped to re-frame the ship (undo orbit / look-around) on a scripted step.
   const [recenterSignal, setRecenterSignal] = useState(0)
   // Whether the paired recenter keeps the current dolly zoom (manual travel) or
@@ -341,6 +356,21 @@ export default function App() {
     }
   }, [])
 
+  // "F" toggles free flight (ignored while typing in a console field, and while
+  // a tour is driving the camera).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.code !== 'KeyF' || e.metaKey || e.ctrlKey || e.altKey) return
+      const t = e.target as HTMLElement | null
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA')) return
+      if (tourActiveRef.current) return
+      e.preventDefault()
+      toggleFreeFlight()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
+
   // Load the shipped-demo catalog once (drives the universe picker's demo list).
   useEffect(() => {
     let cancelled = false
@@ -383,7 +413,9 @@ export default function App() {
   // itself via travelTo); this keeps the on-screen journey in lockstep with the
   // narration the user is reading.
   const handleTravel = (id: string) => {
-    if (tourActiveRef.current) return
+    // No node-to-node travel while free-flying — you're off the rails by design;
+    // exit free flight (F) to resume the parked, path-following navigation.
+    if (tourActiveRef.current || freeFlight) return
     // Normalize the orbit + gaze before a manual traversal (so the first hop
     // doesn't fly off in the orbited direction), but keep the user's dolly zoom.
     reframeForMove(true)
@@ -536,6 +568,31 @@ export default function App() {
         const idx = t.indexOf(arrived)
         return idx >= 0 ? t.slice(0, idx + 1) : [...t, arrived]
       })
+      // Face where the stars are: on a manual arrival, turn the gaze toward the
+      // centroid of the arrived node's (in-view) neighbours, so you land looking
+      // at the densest cluster rather than out over the empty edge of the graph
+      // — no more spinning around to find the neighbours hiding "behind" the
+      // node. Reuses the parked gaze-turn (frameTarget, zoom:false). Skipped
+      // during tours (their own steps drive the gaze) and when the node has no
+      // placed neighbours (nothing to aim at — keep the default outward look).
+      if (!tourActiveRef.current && view) {
+        const arrivedNode = view.nodeById.get(arrived)
+        let cx = 0, cy = 0, cz = 0, n = 0
+        for (const id of view.neighbors.get(arrived) ?? []) {
+          const nb = view.nodeById.get(id)
+          if (nb?.x != null && nb.y != null && nb.z != null) {
+            cx += nb.x; cy += nb.y; cz += nb.z; n++
+          }
+        }
+        if (arrivedNode?.x != null && n > 0) {
+          setFrameTarget({
+            points: [[arrivedNode.x!, arrivedNode.y!, arrivedNode.z!]],
+            destination: [cx / n, cy / n, cz / n],
+            zoom: false,
+          })
+          setFrameSignal((f) => f + 1)
+        }
+      }
       // Defer the tour-travel settle until we've actually parked (route empties),
       // so it doesn't race the in-flight guards.
       revealPendingRef.current = arrived
@@ -787,6 +844,14 @@ export default function App() {
   const handleNebulaSpacing = (spacing: number) => {
     setNebulaSpacing(spacing)
     if (nebulaOn) restageNebula(true, groupStrength, spacing)
+  }
+  // Base spacing slider: mirror the value into the layout module (so the next
+  // relayout uses it) and re-spatialize the current view — through the same
+  // nebula path, so it works whether grouping is on or off.
+  const handleLayoutSpacing = (spacing: number) => {
+    setLayoutSpacing(spacing)
+    setDefaultLayoutSpacing(spacing)
+    restageNebula(nebulaOn, groupStrength, nebulaSpacing)
   }
   // Toggle field isolation (drop cross-field edges from the sim) and re-stage
   // with the new value so the manual relayout matches what a tour produces.
@@ -1475,6 +1540,8 @@ export default function App() {
           onSelect={handleSelect}
           onTravel={handleTravel}
           onArrive={handleArrive}
+          freeFlight={freeFlight}
+          freeFlightEnter={freeFlightEnter}
         />
       </Canvas>
       <Hud
@@ -1505,6 +1572,8 @@ export default function App() {
         onFollow={handleFollow}
         doorsClosed={doorsClosed}
         onToggleDoors={() => setDoorsClosed(!doorsClosed)}
+        freeFlight={freeFlight}
+        onToggleFreeFlight={toggleFreeFlight}
         onDoorsClosed={handleDoorsClosed}
         pinnedEdgeIds={pinnedEdgeIds}
         visibleEdgeIds={visibleEdgeIds}
@@ -1533,6 +1602,8 @@ export default function App() {
         nebulaLabel={nebulaLabel}
         groupStrength={groupStrength}
         nebulaSpacing={nebulaSpacing}
+        layoutSpacing={layoutSpacing}
+        onLayoutSpacing={handleLayoutSpacing}
         watchReform={watchReform}
         nebulaIsolate={nebulaIsolate}
         onToggleNebula={handleToggleNebula}
@@ -1561,6 +1632,54 @@ export default function App() {
         onQuit={tour.quit}
       />
       <MessageToast message={message} onDismiss={() => setMessage(null)} />
+      {freeFlight && (
+        <Box
+          sx={{
+            position: 'fixed',
+            bottom: 18,
+            left: '50%',
+            transform: 'translateX(-50%)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 1.5,
+            px: 2,
+            py: 1,
+            borderRadius: '10px',
+            background: 'rgba(2, 8, 20, 0.72)',
+            border: '1px solid rgba(127, 212, 255, 0.45)',
+            backdropFilter: 'blur(4px)',
+            font: '11px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace',
+            letterSpacing: 1,
+            color: '#aadfff',
+            pointerEvents: 'auto',
+            zIndex: 20,
+          }}
+        >
+          <Box component="span" sx={{ color: '#7fd4ff', fontWeight: 700, letterSpacing: 2 }}>
+            ✈ FREE FLIGHT
+          </Box>
+          <Box component="span" sx={{ color: 'rgba(170,223,255,0.75)' }}>
+            WASD / arrows · drag look · space/C up·down · shift boost · wheel speed
+          </Box>
+          <Box
+            component="button"
+            onClick={toggleFreeFlight}
+            sx={{
+              font: 'inherit',
+              letterSpacing: 1.5,
+              textTransform: 'uppercase',
+              color: '#02030a',
+              background: '#7fd4ff',
+              border: 'none',
+              borderRadius: '6px',
+              padding: '3px 9px',
+              cursor: 'pointer',
+            }}
+          >
+            exit (F)
+          </Box>
+        </Box>
+      )}
     </Box>
   )
 }

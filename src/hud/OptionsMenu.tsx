@@ -34,6 +34,8 @@ interface Props {
   onToggleAutoCollapse: () => void
   doorsClosed: boolean
   onToggleDoors: () => void
+  freeFlight: boolean
+  onToggleFreeFlight: () => void
   sourceChoice: SourceChoice
   demos: DemoEntry[]
   onSwitchUniverse: (choice: SourceChoice) => void
@@ -43,6 +45,8 @@ interface Props {
   nebulaLabel: string
   groupStrength: number
   nebulaSpacing: number
+  layoutSpacing: number
+  onLayoutSpacing: (value: number) => void
   watchReform: boolean
   nebulaIsolate: boolean
   onToggleNebula: () => void
@@ -72,6 +76,8 @@ export function OptionsMenu({
   onToggleAutoCollapse,
   doorsClosed,
   onToggleDoors,
+  freeFlight,
+  onToggleFreeFlight,
   sourceChoice,
   demos,
   onSwitchUniverse,
@@ -81,6 +87,8 @@ export function OptionsMenu({
   nebulaLabel,
   groupStrength,
   nebulaSpacing,
+  layoutSpacing,
+  onLayoutSpacing,
   watchReform,
   nebulaIsolate,
   onToggleNebula,
@@ -92,9 +100,11 @@ export function OptionsMenu({
 }: Props) {
   const [bundleUrl, setBundleUrl] = useState('')
   const [apiUrl, setApiUrl] = useState(sourceChoice.kind === 'api' ? sourceChoice.url : '')
-  // Local display values for the nebula sliders; relayout fires on release.
+  // Local display values for the layout sliders; the (expensive) relayout fires
+  // on release (onChangeCommitted), not on every drag tick.
   const [strength, setStrength] = useState(Math.round(groupStrength * 100))
   const [spread, setSpread] = useState(Math.round(nebulaSpacing))
+  const [spacing, setSpacing] = useState(Math.round(layoutSpacing))
 
   const inputSx = {
     flex: 1,
@@ -129,6 +139,14 @@ export function OptionsMenu({
     <>
       <Typography sx={{ font: MONO, letterSpacing: 3, color: '#aadfff', mb: 1.5 }}>
         SHIP CONSOLE
+      </Typography>
+
+      <Box component="button" onClick={onToggleFreeFlight} sx={{ ...btnSx(freeFlight), width: '100%', mb: 0.5 }}>
+        {freeFlight ? '◉' : '○'} ✈ free flight (F)
+      </Box>
+      <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mb: 1.5 }}>
+        Fly free through the space between nodes — WASD / arrows to move, drag to
+        look, space/C for up/down, shift to boost. Toggle off to return to the ship.
       </Typography>
 
       <Typography sx={{ font: MONO, letterSpacing: 1.5, color: 'text.secondary' }}>
@@ -299,6 +317,26 @@ export function OptionsMenu({
           )
         })}
       </Box>
+
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
+        <Typography sx={{ font: MONO, letterSpacing: 1.5, color: 'text.secondary' }}>SPACING</Typography>
+        <ValuePill>{spacing}</ValuePill>
+      </Box>
+      <Slider
+        size="small"
+        min={24}
+        max={96}
+        step={2}
+        value={spacing}
+        onChange={(_, v) => setSpacing(v as number)}
+        onChangeCommitted={(_, v) => onLayoutSpacing(v as number)}
+        aria-label="Node spacing"
+        sx={{ mt: -0.5, width: 'calc(100% - 14px)' }}
+      />
+      <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mt: -0.5, mb: 1.5 }}>
+        How packed-or-spread the universe is (edge rest length). Higher = more
+        room between nodes. Re-lays-out behind the blast doors on release.
+      </Typography>
 
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
         <Typography sx={{ font: MONO, letterSpacing: 1.5, color: 'text.secondary' }}>

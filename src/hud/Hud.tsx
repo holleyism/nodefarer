@@ -54,6 +54,8 @@ interface Props {
   onFollow: () => void
   doorsClosed: boolean
   onToggleDoors: () => void
+  freeFlight: boolean
+  onToggleFreeFlight: () => void
   onDoorsClosed: () => void
   pinnedEdgeIds: string[]
   visibleEdgeIds: Set<string>
@@ -89,6 +91,8 @@ interface Props {
   nebulaLabel: string
   groupStrength: number
   nebulaSpacing: number
+  layoutSpacing: number
+  onLayoutSpacing: (value: number) => void
   watchReform: boolean
   nebulaIsolate: boolean
   onToggleNebula: () => void
@@ -139,6 +143,8 @@ export function Hud({
   onFollow,
   doorsClosed,
   onToggleDoors,
+  freeFlight,
+  onToggleFreeFlight,
   onDoorsClosed,
   pinnedEdgeIds,
   visibleEdgeIds,
@@ -167,6 +173,8 @@ export function Hud({
   nebulaLabel,
   groupStrength,
   nebulaSpacing,
+  layoutSpacing,
+  onLayoutSpacing,
   watchReform,
   nebulaIsolate,
   onToggleNebula,
@@ -402,6 +410,8 @@ export function Hud({
           onToggleAutoCollapse={onToggleAutoCollapse}
           doorsClosed={doorsClosed}
           onToggleDoors={onToggleDoors}
+          freeFlight={freeFlight}
+          onToggleFreeFlight={onToggleFreeFlight}
           sourceChoice={sourceChoice}
           demos={demos}
           onSwitchUniverse={onSwitchUniverse}
@@ -411,6 +421,8 @@ export function Hud({
           nebulaLabel={nebulaLabel}
           groupStrength={groupStrength}
           nebulaSpacing={nebulaSpacing}
+          layoutSpacing={layoutSpacing}
+          onLayoutSpacing={onLayoutSpacing}
           watchReform={watchReform}
           nebulaIsolate={nebulaIsolate}
           onToggleNebula={onToggleNebula}
