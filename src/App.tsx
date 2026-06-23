@@ -20,6 +20,7 @@ import { shortestPath } from './data/shortestPath'
 import { runForceLayout, buildSimulation, unpinAll, type ClusterSpec } from './layout/runForceLayout'
 import { buildClusterSpec, assignGroups, groupColor, DEFAULT_SPACING } from './layout/grouping'
 import type { NebulaBody } from './scene/Nebulae'
+import type { NebulaStub } from './scene/NebulaStubEdges'
 import type { NebulaInfo } from './hud/NebulaPanel'
 import type { GraphNode } from './types'
 import { GraphScene } from './scene/GraphScene'
@@ -132,6 +133,14 @@ export default function App() {
   const [nebulaOn, setNebulaOn] = useState(false)
   const [groupStrength, setGroupStrength] = useState(0.6)
   const [nebulaSpacing, setNebulaSpacing] = useState(DEFAULT_SPACING)
+  // How much of a group's members the cloud body must enclose: the percentile of
+  // member distances used for its radius. 0.85 ignores cross-field strays so a
+  // single outlier doesn't balloon the cloud; 1 makes the cloud encompass EVERY
+  // member (e.g. a route node tugged to the field's edge).
+  const [nebulaCoverage, setNebulaCoverage] = useState(0.85)
+  // When on, cross-field edges are dropped from the layout sim so each field
+  // packs tightly around its centroid (no cross-galaxy tug on boundary nodes).
+  const [nebulaIsolate, setNebulaIsolate] = useState(false)
   const [watchReform, setWatchReform] = useState(false)
   // Fold/inspect nebulae (Plan H2b). `foldedGroups` = which groups are collapsed
   // to just their body (explicit, so "fold distant" is a one-shot action and a
@@ -224,6 +233,8 @@ export default function App() {
   const travelDoneRef = useRef<(() => void) | null>(null)
   const opDoneRef = useRef<(() => void) | null>(null)
   const plotDoneRef = useRef<(() => void) | null>(null)
+  // Resolves a tour `nebula` op once a watch-reform regroup finishes.
+  const reformDoneRef = useRef<(() => void) | null>(null)
   // Set on arrival once parked (route empties), to settle a pending tour travel.
   const revealPendingRef = useRef<string | null>(null)
   // Latest committed exploration state, for Back snapshots (assigned in the
@@ -261,7 +272,44 @@ export default function App() {
   const clusterFor = (v: View): ClusterSpec | undefined => {
     if (!nebulaOn) return undefined
     const lens = { ...activeLegend().nebula, enabled: true, groupStrength }
-    return buildClusterSpec(v, lens, groupStrength, nebulaSpacing) ?? undefined
+    const spec = buildClusterSpec(v, lens, groupStrength, nebulaSpacing)
+    if (spec) spec.isolate = nebulaIsolate
+    return spec ?? undefined
+  }
+  // For INCREMENTAL (pinned) relayouts: pull each new node toward the actual
+  // current centre of its group's already-placed members, not the abstract
+  // geometric centroid. A path/expand node then joins the existing cloud instead
+  // of flying to a fresh sphere slot that no longer matches the pinned layout
+  // (groups with nothing placed yet fall back to the geometric centroid).
+  const clusterForPinned = (v: View): ClusterSpec | undefined => {
+    if (!nebulaOn) return undefined
+    const lens = { ...activeLegend().nebula, enabled: true, groupStrength }
+    const groupOf = assignGroups(v, lens)
+    if (!groupOf) return undefined
+    const sums = new Map<string, [number, number, number, number]>()
+    for (const n of v.nodes) {
+      if (n.x == null || n.y == null || n.z == null) continue
+      const k = groupOf.get(n.id)
+      if (k == null) continue
+      const s = sums.get(k) ?? [0, 0, 0, 0]
+      s[0] += n.x
+      s[1] += n.y
+      s[2] += n.z
+      s[3] += 1
+      sums.set(k, s)
+    }
+    const geo = buildClusterSpec(v, lens, groupStrength, nebulaSpacing)
+    return {
+      strength: groupStrength,
+      isolate: nebulaIsolate,
+      groupOf: (n) => groupOf.get(n.id) ?? null,
+      centroid: (k) => {
+        const s = sums.get(k)
+        return s && s[3] > 0
+          ? [s[0] / s[3], s[1] / s[3], s[2] / s[3]]
+          : geo?.centroid(k) ?? [0, 0, 0]
+      },
+    }
   }
 
   // Initial load: build the source for the active choice (saved pick, else the
@@ -364,7 +412,8 @@ export default function App() {
         nextView = result.view
         path = result.route
         // Lay out any path nodes that weren't loaded (existing nodes pinned).
-        if (nextView.nodes.length > view.nodes.length) runForceLayout(nextView, { pin: true })
+        if (nextView.nodes.length > view.nodes.length)
+          runForceLayout(nextView, { pin: true, cluster: clusterForPinned(nextView) })
       } else {
         const local = shortestPath(view, from, id)
         path = local ?? [from, id] // unreachable → direct flight
@@ -415,7 +464,8 @@ export default function App() {
       if (result && result.route.length > 1) {
         nextView = result.view
         path = result.route
-        if (nextView.nodes.length > view.nodes.length) runForceLayout(nextView, { pin: true })
+        if (nextView.nodes.length > view.nodes.length)
+          runForceLayout(nextView, { pin: true, cluster: clusterForPinned(nextView) })
       } else {
         const local = shortestPath(view, from, id)
         path = local ?? [from, id]
@@ -559,7 +609,7 @@ export default function App() {
   const reView = (next: (s: GraphSource, v: View) => Promise<View>) =>
     behindDoors(async (s, v) => {
       const nv = await next(s, v)
-      runForceLayout(nv, { pin: true, cluster: clusterFor(nv) })
+      runForceLayout(nv, { pin: true, cluster: clusterForPinned(nv) })
       return () => setView(nv)
     })
   const handleExpand = (id: string, rule?: ExpandRule) => reView((s, v) => s.expand(v, id, rule))
@@ -699,13 +749,19 @@ export default function App() {
     reformViewRef.current = null
     setReformSim(null)
     setLiveLayout(false)
+    // Settle a pending tour `nebula` op (post-commit) now the reform has landed.
+    const done = reformDoneRef.current
+    reformDoneRef.current = null
+    if (done) requestAnimationFrame(() => requestAnimationFrame(done))
   }
 
-  const restageNebula = (on: boolean, gs: number, spacing: number) => {
+  const restageNebula = (on: boolean, gs: number, spacing: number, isolate = nebulaIsolate) => {
     if (!view || traveling || tourActiveRef.current) return
-    const cluster = on
-      ? (buildClusterSpec(view, { ...activeLegend().nebula, enabled: true, groupStrength: gs }, gs, spacing) ?? undefined)
-      : undefined
+    let cluster: ClusterSpec | undefined
+    if (on) {
+      cluster = buildClusterSpec(view, { ...activeLegend().nebula, enabled: true, groupStrength: gs }, gs, spacing) ?? undefined
+      if (cluster) cluster.isolate = isolate // match the demo's field isolation
+    }
     if (watchReform) {
       reformSim?.stop() // abandon any in-flight reform
       reformViewRef.current = view
@@ -731,6 +787,13 @@ export default function App() {
   const handleNebulaSpacing = (spacing: number) => {
     setNebulaSpacing(spacing)
     if (nebulaOn) restageNebula(true, groupStrength, spacing)
+  }
+  // Toggle field isolation (drop cross-field edges from the sim) and re-stage
+  // with the new value so the manual relayout matches what a tour produces.
+  const handleToggleIsolate = () => {
+    const next = !nebulaIsolate
+    setNebulaIsolate(next)
+    if (nebulaOn) restageNebula(true, groupStrength, nebulaSpacing, next)
   }
   // Collapse every nebula except the current node's — a one-shot ACTION (Plan
   // H2b), re-pressable. Folding is a pure visibility mask; no relayout.
@@ -857,15 +920,24 @@ export default function App() {
       }
       case 'plot':
         return plotCourseTo(op.to)
-      case 'travelCourse':
-        return travelCourse()
+      case 'travelCourse': {
+        // Capture the destination before flying — plottedRoute clears on arrival.
+        const dest = plottedRoute[plottedRoute.length - 1]
+        return travelCourse().then(() => {
+          if (op.inspect && dest) {
+            setSelectedId(dest)
+            clearEdges()
+            return nextFrame()
+          }
+        })
+      }
       case 'filter':
         setPredicate(op.predicate)
         return nextFrame()
       case 'expand':
         return behindDoorsAsync(async (s, v) => {
           const nv = await s.expand(v, op.nodeId, op.rule)
-          runForceLayout(nv, { pin: true })
+          runForceLayout(nv, { pin: true, cluster: clusterForPinned(nv) })
           return () => {
             setView(nv)
             // Turn (instantly, behind the doors) to look down the conduit to the
@@ -890,9 +962,75 @@ export default function App() {
       case 'collapse':
         return behindDoorsAsync(async (s, v) => {
           const nv = await s.collapse(v, op.nodeId, op.fromId)
-          runForceLayout(nv, { pin: true })
+          runForceLayout(nv, { pin: true, cluster: clusterForPinned(nv) })
           return () => setView(nv)
         })
+      case 'nebula': {
+        // Turn the field grouping on/off. Drives the same machinery the manual
+        // console toggle uses, but reusable from a tour (restageNebula itself
+        // no-ops while a tour is active, so we run the regroup here directly).
+        setNebulaOn(op.on)
+        // Optional per-tour overrides for grouping tightness + galaxy spacing.
+        // Commit them to state so later steps' relayouts (plot/travel via
+        // clusterFor) use the same values, and use them locally for this regroup.
+        const gs = op.strength ?? groupStrength
+        const spacing = op.spread ?? nebulaSpacing
+        if (op.strength != null) setGroupStrength(op.strength)
+        if (op.spread != null) setNebulaSpacing(op.spread)
+        if (op.coverage != null) setNebulaCoverage(op.coverage)
+        if (op.isolate != null) setNebulaIsolate(op.isolate)
+        const isolate = op.isolate ?? nebulaIsolate
+        const lens = { ...activeLegend().nebula, enabled: true, groupStrength: gs }
+        // Build a cluster spec for this op's regroup, carrying the isolate flag.
+        const clusterOf = (v: View) => {
+          const spec = buildClusterSpec(v, lens, gs, spacing)
+          if (spec) spec.isolate = isolate
+          return spec ?? undefined
+        }
+        // After grouping, optionally fold every nebula except the one we're in:
+        // distant fields collapse to clouds (members hidden), their connections
+        // surviving as fading stub beams. Applied once the regroup has settled.
+        const applyFold = () => {
+          if (op.on && op.fold === 'distant' && view && currentId) {
+            const ga = assignGroups(view, lens)
+            if (ga) {
+              const cur = ga.get(currentId)
+              setFoldedGroups(new Set([...new Set(ga.values())].filter((g) => g !== cur)))
+            }
+          } else if (!op.on) {
+            setFoldedGroups(new Set()) // turning grouping off clears any folds
+          }
+        }
+        if (op.on && (op.watch ?? true) && view) {
+          // Animated reveal: regroup with the simulation visible (doors open),
+          // resolving the step once LayoutReform reports it has settled.
+          const cluster = clusterOf(view)
+          return new Promise<void>((resolve) => {
+            let settled = false
+            const finish = () => {
+              if (settled) return
+              settled = true
+              applyFold()
+              resolve()
+            }
+            reformDoneRef.current = finish
+            reformSim?.stop()
+            reformViewRef.current = view
+            setReformSim(buildSimulation(view, { cluster }))
+            setLiveLayout(true)
+            setTimeout(finish, 5000) // safety: never hang the tour on a stalled reform
+          })
+        }
+        // Snap (no animation) or turning grouping off: relayout behind the doors.
+        return behindDoorsAsync(async (_s, v) => {
+          const cluster = op.on ? clusterOf(v) : undefined
+          runForceLayout(v, { cluster })
+          return () => {
+            setView({ ...v })
+            applyFold()
+          }
+        })
+      }
       case 'travel':
         reframeForMove()
         if (op.collapseOffPath) setAutoCollapse(true)
@@ -1090,14 +1228,14 @@ export default function App() {
         dists.push(Math.hypot(n.x - cx, n.y - cy, n.z - cz))
       }
       dists.sort((a, b) => a - b)
-      const r = dists[Math.min(dists.length - 1, Math.floor(dists.length * 0.85))] ?? 0
+      const r = dists[Math.min(dists.length - 1, Math.floor((dists.length - 1) * nebulaCoverage))] ?? 0
       bodies.push({ key, label: key, color: groupColor(key, palette), center: [cx, cy, cz], radius: r + 18, count: m, folded: false, focused: false, hovered: false })
     }
     return bodies
     // activeLegend() reads atlasRef (stable across a session); `view`/groupAssign
     // change ref on every relayout, which is what should retrigger this.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [nebulaOn, groupStrength, view, groupAssign])
+  }, [nebulaOn, groupStrength, nebulaCoverage, view, groupAssign])
 
   // Arriving in a nebula blooms it open (remove from folded) and refocuses the
   // inspector on it (Plan H2b hero beat).
@@ -1164,22 +1302,72 @@ export default function App() {
   const inspectedNebula = focusedNebula ?? currentGroup
   // displayGraph = the decluttered (and fold-masked) scene the viewport renders;
   // the HUD/panel still get the full `view` so the Links list shows every edge.
+  // Nodes on a plotted course (or the active flight) punch THROUGH a folded
+  // nebula: the bulk of the field stays hidden, but the specific lineage we trace
+  // lights up across it — so "reaching back" reveals the path, not the whole field.
   const displayGraph =
     foldedGroups.size && groupAssign
       ? maskFoldedGroups(
           display.display,
           groupAssign,
           foldedGroups,
-          new Set([currentId, ...(selectedId ? [selectedId] : [])]),
+          new Set(
+            [currentId, selectedId, ...plottedRoute, ...route].filter(Boolean) as string[],
+          ),
         )
       : display.display
-  // Tag each body with its fold/focus/hover state for the scene.
-  const sceneNebulae = nebulae.map((b) => ({
-    ...b,
-    folded: foldedGroups.has(b.key),
-    focused: b.key === inspectedNebula,
-    hovered: b.key === hoveredNebula,
-  }))
+  // Tag each body with its fold/focus/hover state for the scene. The nebula we
+  // are INSIDE is never drawn as a cloud — its haze just fogs the foreground and
+  // is hard to read from within; we render its member nodes, not a body.
+  const sceneNebulae = nebulae
+    .filter((b) => b.key !== currentGroup)
+    .map((b) => ({
+      ...b,
+      folded: foldedGroups.has(b.key),
+      focused: b.key === inspectedNebula,
+      hovered: b.key === hoveredNebula,
+    }))
+  // Faint beams from visible nodes into FOLDED nebulae: the connection exists but
+  // its members are hidden, so the edge dissolves into the cloud's surface (built
+  // from the full view, since the masked displayGraph has dropped those edges).
+  const nebulaStubs: NebulaStub[] =
+    nebulaOn && groupAssign && foldedGroups.size
+      ? (() => {
+          const bodyByKey = new Map(nebulae.map((b) => [b.key, b]))
+          const keep = new Set([currentId, selectedId].filter(Boolean) as string[])
+          const hiddenById = (id: string) => {
+            const g = groupAssign.get(id)
+            return g != null && foldedGroups.has(g) && !keep.has(id)
+          }
+          const seen = new Set<string>()
+          const out: NebulaStub[] = []
+          for (const e of view.edges) {
+            const sH = hiddenById(e.source)
+            const tH = hiddenById(e.target)
+            if (sH === tH) continue // both hidden or both visible — no stub
+            const visId = sH ? e.target : e.source
+            const hidId = sH ? e.source : e.target
+            // The visible end must actually be on screen (survive the budget mask).
+            if (!displayGraph.nodeById.has(visId)) continue
+            const g = groupAssign.get(hidId)!
+            const body = bodyByKey.get(g)
+            const vn = view.nodeById.get(visId)
+            if (!body || !vn || vn.x == null) continue
+            const key = `${visId}->${g}`
+            if (seen.has(key)) continue
+            seen.add(key)
+            out.push({
+              id: key,
+              from: [vn.x, vn.y!, vn.z!],
+              fromType: vn.type,
+              center: body.center,
+              radius: body.radius,
+              color: body.color,
+            })
+          }
+          return out
+        })()
+      : []
   const visibleEdgeIds = display.visibleEdgeIds
 
   // The plotted course as a "route" emphasis — its nodes + connecting edges,
@@ -1268,6 +1456,8 @@ export default function App() {
           selectionPaused={viewMode !== 'proximity' || doorsClosed}
           emphases={emphases}
           nebulae={doorsClosed || liveLayout ? [] : sceneNebulae}
+          nebulaStubs={doorsClosed || liveLayout ? [] : nebulaStubs}
+          spotlightPath={plottedRoute.length > 1}
           onSelectNebula={handleSelectNebula}
           onHoverNebula={handleHoverNebula}
           liveLayout={liveLayout}
@@ -1344,10 +1534,12 @@ export default function App() {
         groupStrength={groupStrength}
         nebulaSpacing={nebulaSpacing}
         watchReform={watchReform}
+        nebulaIsolate={nebulaIsolate}
         onToggleNebula={handleToggleNebula}
         onGroupStrength={handleGroupStrength}
         onNebulaSpacing={handleNebulaSpacing}
         onToggleWatchReform={() => setWatchReform((w) => !w)}
+        onToggleIsolate={handleToggleIsolate}
         onFoldDistant={handleFoldDistant}
         nebulaInfo={inspectedNebulaInfo}
         nebulaColor={inspectedNebula ? groupColor(inspectedNebula, activeLegend().colors.communityPalette) : '#9af7d0'}

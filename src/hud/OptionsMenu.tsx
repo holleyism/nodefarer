@@ -44,10 +44,12 @@ interface Props {
   groupStrength: number
   nebulaSpacing: number
   watchReform: boolean
+  nebulaIsolate: boolean
   onToggleNebula: () => void
   onGroupStrength: (value: number) => void
   onNebulaSpacing: (value: number) => void
   onToggleWatchReform: () => void
+  onToggleIsolate: () => void
   onFoldDistant: () => void
 }
 
@@ -80,10 +82,12 @@ export function OptionsMenu({
   groupStrength,
   nebulaSpacing,
   watchReform,
+  nebulaIsolate,
   onToggleNebula,
   onGroupStrength,
   onNebulaSpacing,
   onToggleWatchReform,
+  onToggleIsolate,
   onFoldDistant,
 }: Props) {
   const [bundleUrl, setBundleUrl] = useState('')
@@ -243,6 +247,13 @@ export function OptionsMenu({
           </Box>
           <Box
             component="button"
+            onClick={onToggleIsolate}
+            sx={{ ...btnSx(nebulaIsolate), width: '100%', mt: 0.5 }}
+          >
+            {nebulaIsolate ? '◉' : '○'} isolate fields
+          </Box>
+          <Box
+            component="button"
             onClick={onToggleWatchReform}
             sx={{ ...btnSx(watchReform), width: '100%', mt: 0.5 }}
           >
@@ -250,7 +261,8 @@ export function OptionsMenu({
           </Box>
           <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mt: 0.5, mb: 1.5 }}>
             Grouping: 0% = force-directed, 100% = hard split by {nebulaLabel}.
-            Spread = distance between clouds (nodes stay packed). Watch = run it
+            Spread = distance between clouds (nodes stay packed). Isolate = drop
+            cross-field links so galaxies hold their spacing. Watch = run it
             visibly with the doors open.
           </Typography>
         </>

@@ -36,7 +36,8 @@ export type TourOp =
   // later `travelCourse` flies it.
   | { kind: 'plot'; to: string }
   // Travel the currently-plotted course — fly the highlighted path to its end.
-  | { kind: 'travelCourse' }
+  // `inspect` opens the destination's details panel on arrival (you land on it).
+  | { kind: 'travelCourse'; inspect?: boolean }
   // Pull neighbors of `nodeId` along a relationship (e.g. lighting up a
   // wormhole: rule { relType: 'semantic', limit: 1 }). `face` turns the gaze
   // (instantly, behind the doors) toward that node so the reveal is in view when
@@ -54,6 +55,30 @@ export type TourOp =
   // e.g. a recap "look back" toward where we came from; `edge` lights a single
   // edge. Used for "look at this" beats and the closing recap.
   | { kind: 'look'; focus?: string; edge?: { from: string; to: string; rel: string } }
+  // Toggle the nebula grouping (fields → galaxies). `watch` (default true) runs
+  // the regroup as a visible reform with the doors open, so the "sky resolves
+  // into fields" beat animates; false snaps it behind the doors. Grouping uses
+  // the Atlas legend's nebula lens (e.g. by Field). `fold: 'distant'` then
+  // collapses every nebula EXCEPT the one we're in — members hidden, but the
+  // connections into them still show as fading stub beams ("you can't see that
+  // far yet"). `strength` (0..1) and `spread` (the centroid spacing, ~100..1000)
+  // override the grouping tightness + galaxy separation for the tour, so a story
+  // can pull each field firmly into its own cloud.
+  | {
+      kind: 'nebula'
+      on: boolean
+      watch?: boolean
+      fold?: 'distant' | 'none'
+      strength?: number
+      spread?: number
+      // Cloud-body coverage (0..1): 1 makes each cloud enclose all its members
+      // (e.g. a route node tugged to a field's edge), vs the default 0.85 that
+      // ignores cross-field strays.
+      coverage?: number
+      // Drop cross-field edges from the layout sim so each field packs tightly
+      // around its centroid (no cross-galaxy tug on boundary nodes).
+      isolate?: boolean
+    }
 
 export interface TourStep {
   id: string

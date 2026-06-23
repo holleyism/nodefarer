@@ -94,6 +94,11 @@
       "file": "tours/s4-wormhole-plato.json",
       "title": "Wormhole: from networks to Plato",
       "subtitle": "Concept learning → Plato’s problem"
+    },
+    {
+      "file": "tours/convergence.json",
+      "title": "Convergence — where a revolution comes from",
+      "subtitle": "The transformer’s roots across four fields"
     }
   ]
 }

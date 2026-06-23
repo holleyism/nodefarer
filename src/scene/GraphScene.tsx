@@ -4,6 +4,7 @@ import type { Graph, GraphNode } from '../types'
 import { Nodes } from './Nodes'
 import { Edges } from './Edges'
 import { Nebulae, type NebulaBody } from './Nebulae'
+import { NebulaStubEdges, type NebulaStub } from './NebulaStubEdges'
 import { LayoutReform } from './LayoutReform'
 import { EdgeHighlights } from './EdgeHighlights'
 import { Reticles } from './Reticles'
@@ -27,6 +28,10 @@ interface Props {
   emphases: Emphasis[]
   // Volumetric nebula bodies (Plan H2); empty when nebulae are off.
   nebulae: NebulaBody[]
+  // Faint beams into folded nebulae (connection exists, members hidden).
+  nebulaStubs: NebulaStub[]
+  // Spotlight the highlighted path: dim everything off it (nodes + edges).
+  spotlightPath: boolean
   onSelectNebula: (key: string) => void
   onHoverNebula: (key: string | null) => void
   // Layout-reform animation (Plan H "watch reform"): a sim ticked in-loop while
@@ -66,6 +71,8 @@ export function GraphScene({
   selectionPaused,
   emphases,
   nebulae,
+  nebulaStubs,
+  spotlightPath,
   onSelectNebula,
   onHoverNebula,
   liveLayout,
@@ -109,11 +116,13 @@ export function GraphScene({
       <directionalLight position={[200, 300, 100]} intensity={0.8} />
       <Stars radius={1200} depth={400} count={5000} factor={6} saturation={0.4} fade speed={0.4} />
       <Nebulae bodies={nebulae} onSelect={onSelectNebula} onHover={onHoverNebula} />
+      <NebulaStubEdges stubs={nebulaStubs} />
       <Edges
         graph={graph}
         currentId={currentNode.id}
         highlightEdges={highlightEdges}
         live={liveLayout}
+        dimOthers={spotlightPath}
       />
       <EdgeHighlights graph={graph} pinnedEdgeIds={pinnedEdgeIds} hoveredEdgeId={hoveredEdgeId} />
       <Nodes
@@ -121,6 +130,7 @@ export function GraphScene({
         selectedId={selectedId}
         currentId={currentNode.id}
         highlightNodes={highlightNodes}
+        dimOthers={spotlightPath}
         live={liveLayout}
         onSelect={onSelect}
         onTravel={onTravel}

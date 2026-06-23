@@ -57,9 +57,16 @@ interface EdgesProps {
   // positions (a layout reform in progress), so beams stay glued to the moving
   // nodes and in phase with the camera instead of lagging React by a frame.
   live?: boolean
+  // Spotlight a highlighted path: everything NOT highlighted fades way back so
+  // the lit route reads on its own.
+  dimOthers?: boolean
 }
 
-export function Edges({ graph, currentId, highlightEdges, live = false }: EdgesProps) {
+// How far a non-highlighted beam falls back while the path is spotlit (fraction
+// of its normal opacity that remains).
+const DIM_KEEP = 0.16
+
+export function Edges({ graph, currentId, highlightEdges, live = false, dimOthers = false }: EdgesProps) {
   const cylGeo = useMemo(() => new THREE.CylinderGeometry(1, 1, 1, 12, 24, true), [])
   // Latest per-edge highlight colours, read live inside the frame loop.
   const hlRef = useRef<Map<string, string>>(highlightEdges ?? new Map())
@@ -106,6 +113,7 @@ export function Edges({ graph, currentId, highlightEdges, live = false }: EdgesP
           len0: length, // beam length at build — for the worm funnel's live scale ratio
           activeF: 0, // animated 0→1 as this edge becomes/stops being a lane
           hlF: 0, // animated 0→1 as this edge becomes/stops being highlighted
+          dimF: 0, // animated 0→1 as this edge fades back under a path spotlight
           hlColor: new THREE.Color('#ffce7a'), // current highlight tint (per-edge)
           mid: av.clone().add(bv).multiplyScalar(0.5),
           quat: new THREE.Quaternion().setFromUnitVectors(UP, dir),
@@ -134,6 +142,8 @@ export function Edges({ graph, currentId, highlightEdges, live = false }: EdgesP
   }).current
   const liveRef = useRef(live)
   liveRef.current = live
+  const dimRef = useRef(dimOthers)
+  dimRef.current = dimOthers
   const graphRef = useRef(graph)
   graphRef.current = graph
   const itemsRef = useRef(items)
@@ -164,26 +174,37 @@ export function Edges({ graph, currentId, highlightEdges, live = false }: EdgesP
   useFrame((state, delta) => {
     const t = state.clock.elapsedTime
     const k = Math.min(1, delta * 6) // ~0.3s ease toward the active/inactive look
+    const dimOn = dimRef.current
     for (const it of items) {
+      const hc = hlRef.current.get(it.id)
+      // A spotlit path dims everything not highlighted (wormholes included).
+      const dimTarget = dimOn && !hc ? 1 : 0
       if (it.worm) {
         it.mat.uTime = t
+        it.dimF += (dimTarget - it.dimF) * k
+        if (Math.abs(dimTarget - it.dimF) < 0.002) it.dimF = dimTarget
+        it.mat.uOpacity = ACTIVE_OP * (1 - (1 - DIM_KEEP) * it.dimF)
         continue
       }
       const target = it.source === currentId || it.target === currentId ? 1 : 0
-      const hc = hlRef.current.get(it.id)
       const hlTarget = hc ? 1 : 0
       if (hc) it.hlColor.copy(colorFor(hc)) // keep last colour during fade-out
-      // Skip work only when fully settled in both the lane and highlight states.
-      if (it.activeF === target && it.hlF === hlTarget && hlTarget === 0) continue
+      // Skip work only when fully settled across lane, highlight AND dim states.
+      if (it.activeF === target && it.hlF === hlTarget && it.dimF === dimTarget && hlTarget === 0 && dimTarget === 0)
+        continue
       it.activeF += (target - it.activeF) * k
       if (Math.abs(target - it.activeF) < 0.002) it.activeF = target
       it.hlF += (hlTarget - it.hlF) * k
       if (Math.abs(hlTarget - it.hlF) < 0.002) it.hlF = hlTarget
-      // Base lane look, then blend toward the highlight colour/brightness.
+      it.dimF += (dimTarget - it.dimF) * k
+      if (Math.abs(dimTarget - it.dimF) < 0.002) it.dimF = dimTarget
+      // Base lane look, then blend toward the highlight colour/brightness, then
+      // fade back if this edge is off the spotlit path.
       scratch.lerpColors(INACTIVE, ACTIVE, it.activeF)
       const baseOp = INACTIVE_OP + (ACTIVE_OP - INACTIVE_OP) * it.activeF
       it.mat.uColor.copy(scratch).lerp(it.hlColor, it.hlF)
-      it.mat.uOpacity = baseOp + (HIGHLIGHT_OP - baseOp) * it.hlF
+      const op = baseOp + (HIGHLIGHT_OP - baseOp) * it.hlF
+      it.mat.uOpacity = op * (1 - (1 - DIM_KEEP) * it.dimF)
     }
   })
 

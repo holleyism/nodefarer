@@ -32,6 +32,8 @@ interface NodeMeshProps {
   // on the real sphere — no separate floating ring to parallax off the node).
   isHighlighted: boolean
   highlightColor: string
+  // Spotlight: this node is NOT on the highlighted path, so fade it right back.
+  dimmed: boolean
   // Registers this node's group so the parent can drive its position imperatively
   // during a live reform (kept in phase with the camera + beams).
   register: (id: string, g: THREE.Group | null) => void
@@ -39,7 +41,7 @@ interface NodeMeshProps {
   onTravel: (id: string) => void
 }
 
-const NodeMesh = memo(function NodeMesh({ node, x, y, z, color, geometry, isSelected, isCurrent, isHighlighted, highlightColor, register, onSelect, onTravel }: NodeMeshProps) {
+const NodeMesh = memo(function NodeMesh({ node, x, y, z, color, geometry, isSelected, isCurrent, isHighlighted, highlightColor, dimmed, register, onSelect, onTravel }: NodeMeshProps) {
   const radius = NODE_RADIUS[node.type]
   const setGroup = useCallback((g: THREE.Group | null) => register(node.id, g), [register, node.id])
   const handleClick = (e: ThreeEvent<MouseEvent>) => {
@@ -63,7 +65,7 @@ const NodeMesh = memo(function NodeMesh({ node, x, y, z, color, geometry, isSele
             map={glowTexture}
             color={isHighlighted ? highlightColor : color}
             transparent
-            opacity={isHighlighted ? 0.75 : isSelected ? 0.7 : 0.5}
+            opacity={isHighlighted ? 0.75 : isSelected ? 0.7 : dimmed ? 0.08 : 0.5}
             blending={THREE.AdditiveBlending}
             depthWrite={false}
             toneMapped={false}
@@ -86,9 +88,11 @@ const NodeMesh = memo(function NodeMesh({ node, x, y, z, color, geometry, isSele
         <meshStandardMaterial
           color={color}
           emissive={isHighlighted ? highlightColor : color}
-          emissiveIntensity={isHighlighted ? 1.7 : isSelected ? 1.6 : 0.7}
+          emissiveIntensity={isHighlighted ? 1.7 : isSelected ? 1.6 : dimmed ? 0.12 : 0.7}
           roughness={0.4}
           metalness={0.1}
+          transparent={dimmed}
+          opacity={dimmed ? 0.28 : 1}
         />
       </mesh>
     </group>
@@ -102,6 +106,8 @@ interface NodesProps {
   // Highlighted nodes → their highlight colour (route / nebula overlays may
   // layer, each with its own colour; Plan H3).
   highlightNodes?: Map<string, string>
+  // Spotlight a highlighted path: nodes off it (and not the current node) fade back.
+  dimOthers?: boolean
   // While true, node positions are driven imperatively each frame from the live
   // node coords (a layout reform in progress) instead of from React props.
   live?: boolean
@@ -111,7 +117,7 @@ interface NodesProps {
 
 // The current node renders too — the ship hovers above it, so you see
 // your own "planet" below the viewport rather than sitting inside it.
-export function Nodes({ graph, selectedId, currentId, highlightNodes, live = false, onSelect, onTravel }: NodesProps) {
+export function Nodes({ graph, selectedId, currentId, highlightNodes, dimOthers = false, live = false, onSelect, onTravel }: NodesProps) {
   const geometry = useMemo(() => new THREE.SphereGeometry(1, 24, 24), [])
 
   // Imperative per-frame position sync during a reform: keeps the node meshes in
@@ -151,6 +157,7 @@ export function Nodes({ graph, selectedId, currentId, highlightNodes, live = fal
             isCurrent={node.id === currentId}
             isHighlighted={hl != null}
             highlightColor={hl ?? '#ffce7a'}
+            dimmed={dimOthers && hl == null && node.id !== currentId}
             register={register}
             onSelect={onSelect}
             onTravel={onTravel}

@@ -10,6 +10,11 @@ export interface ClusterSpec {
   strength: number
   groupOf: (n: GraphNode) => string | null
   centroid: (key: string) => [number, number, number]
+  // When set, edges that bridge two DIFFERENT groups are dropped from the link
+  // force, so a field lays out from its intra-field links + the centroid pull
+  // alone — a cross-field citation can't drag a boundary node toward a foreign
+  // galaxy. The edges still render; they just don't exert per-node force.
+  isolate?: boolean
 }
 
 interface LayoutOpts {
@@ -43,13 +48,25 @@ export function buildSimulation(graph: Graph, opts: LayoutOpts = {}) {
     }
     for (const n of graph.nodes) {
       if (placed(n)) continue
-      const anchor = (graph.neighbors.get(n.id) ?? [])
-        .map((id) => graph.nodeById.get(id))
-        .find((m) => m && placed(m))
       const jitter = () => (Math.random() - 0.5) * 30
-      n.x = (anchor?.x ?? 0) + jitter()
-      n.y = (anchor?.y ?? 0) + jitter()
-      n.z = (anchor?.z ?? 0) + jitter()
+      // Prefer seeding at the node's CLUSTER centroid: a short pinned settle then
+      // just holds it inside its field. A node whose only links cross fields
+      // (e.g. a path endpoint with isolate on) would otherwise have nothing to
+      // pull it across the gap in time, and stall between clouds.
+      let seed: [number, number, number] | null = null
+      if (opts.cluster && opts.cluster.strength > 0) {
+        const k = opts.cluster.groupOf(n)
+        if (k != null) seed = opts.cluster.centroid(k)
+      }
+      if (!seed) {
+        const anchor = (graph.neighbors.get(n.id) ?? [])
+          .map((id) => graph.nodeById.get(id))
+          .find((m) => m && placed(m))
+        seed = [anchor?.x ?? 0, anchor?.y ?? 0, anchor?.z ?? 0]
+      }
+      n.x = seed[0] + jitter()
+      n.y = seed[1] + jitter()
+      n.z = seed[2] + jitter()
     }
   }
 
@@ -63,7 +80,20 @@ export function buildSimulation(graph: Graph, opts: LayoutOpts = {}) {
     }
   }
 
-  const links = graph.edges.map((e) => ({ source: e.source, target: e.target }))
+  // Optionally drop cross-group edges so a cluster lays out free of cross-field
+  // tug (keep intra-group edges and any edge touching an ungrouped node).
+  let linkEdges = graph.edges
+  if (opts.cluster?.isolate) {
+    const g = opts.cluster.groupOf
+    linkEdges = graph.edges.filter((e) => {
+      const a = graph.nodeById.get(e.source)
+      const b = graph.nodeById.get(e.target)
+      const ga = a ? g(a) : null
+      const gb = b ? g(b) : null
+      return !(ga != null && gb != null && ga !== gb)
+    })
+  }
+  const links = linkEdges.map((e) => ({ source: e.source, target: e.target }))
   const simulation = forceSimulation(graph.nodes, 3)
     .force(
       'link',

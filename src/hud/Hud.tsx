@@ -90,10 +90,12 @@ interface Props {
   groupStrength: number
   nebulaSpacing: number
   watchReform: boolean
+  nebulaIsolate: boolean
   onToggleNebula: () => void
   onGroupStrength: (value: number) => void
   onNebulaSpacing: (value: number) => void
   onToggleWatchReform: () => void
+  onToggleIsolate: () => void
   onFoldDistant: () => void
   // Nebula inspector (Plan H2b): the focused/current nebula + its fold state.
   nebulaInfo: NebulaInfo | null
@@ -166,10 +168,12 @@ export function Hud({
   groupStrength,
   nebulaSpacing,
   watchReform,
+  nebulaIsolate,
   onToggleNebula,
   onGroupStrength,
   onNebulaSpacing,
   onToggleWatchReform,
+  onToggleIsolate,
   onFoldDistant,
   nebulaInfo,
   nebulaColor,
@@ -408,10 +412,12 @@ export function Hud({
           groupStrength={groupStrength}
           nebulaSpacing={nebulaSpacing}
           watchReform={watchReform}
+          nebulaIsolate={nebulaIsolate}
           onToggleNebula={onToggleNebula}
           onGroupStrength={onGroupStrength}
           onNebulaSpacing={onNebulaSpacing}
           onToggleWatchReform={onToggleWatchReform}
+          onToggleIsolate={onToggleIsolate}
           onFoldDistant={onFoldDistant}
         />
       ),

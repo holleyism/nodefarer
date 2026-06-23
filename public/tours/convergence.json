@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 1,
+  "id": "convergence",
+  "title": "Convergence — where a revolution comes from",
+  "subtitle": "Start at the transformer. Trace its roots back across four fields.",
+  "bundle": "bundle.json",
+  "entry": { "mode": "node", "id": "@destination", "maxNodes": 60 },
+  "steps": [
+    {
+      "id": "land",
+      "title": "A revolution, fully formed",
+      "body": "\"Attention Is All You Need\" — the architecture behind today's large language models. We've parked on it, its details open, surrounded by the work it set in motion. From here it looks like it sprang fully formed out of computer science. It didn't. Every revolution has roots — so let's trace where this one actually came from, backward across forty years and several fields.",
+      "op": { "kind": "inspect", "id": "@destination" },
+      "nextLabel": "Reveal the fields →"
+    },
+    {
+      "id": "fields",
+      "title": "The sky resolves into fields",
+      "body": "Now switch on the field map: every paper grouped by its discipline, each field its own glowing galaxy. The distant fields fold away into clouds — we can't see inside them from here. But notice the faint threads still reaching out toward them: connections leave Computer Science and run into other disciplines entirely. The ideas this architecture was built from are out there, upstream. Let's follow a thread back.",
+      "op": { "kind": "nebula", "on": true, "watch": true, "fold": "distant", "strength": 0.6, "spread": 440, "coverage": 0.9, "isolate": true },
+      "nextLabel": "Reach back, out of computer science →"
+    },
+    {
+      "id": "reach",
+      "title": "Reach back, out of computer science",
+      "body": "Follow one of those threads. Ask the graph for a route from the transformer back toward neuroscience — and it draws one: out of Computer Science, through a single 2020 review that looked both forward and back, and into a 1982 paper in another field entirely. Just two hops, every link a real citation. The path lights up, threading through the folded fields it crosses — the rest of them still dark.",
+      "op": { "kind": "plot", "to": "@origin" },
+      "nextLabel": "Travel to the ancestor →"
+    },
+    {
+      "id": "ancestor",
+      "title": "The ancestor: a 1982 idea in neuroscience",
+      "body": "Fly the course. We leave computer science, pass through that lone bridge, and arrive — in neuroscience, on a paper from 1982. A physicist's model of memory: a network of simple units settling into the stable states of an energy landscape. Four decades before the transformer, in a different field entirely, here is an ancestor of the idea.",
+      "op": { "kind": "travelCourse", "inspect": true },
+      "nextLabel": "Older still →"
+    }
+  ]
+}
