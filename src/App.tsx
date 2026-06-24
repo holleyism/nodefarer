@@ -311,6 +311,21 @@ export default function App() {
       },
     }
   }
+  // A node merged into the view by path()/expand may carry a STALE position from
+  // an EARLIER view (the source's Materializer caches node instances for the whole
+  // session — e.g. the top-PageRank work is laid out once as the default anchor at
+  // app load). That stale x/y/z makes runForceLayout treat the node as
+  // already-placed and pin it where it sat, instead of seeding it into its field.
+  // Clear positions for nodes that are new to THIS view so they re-seed cleanly.
+  const clearNewPositions = (prev: View, next: View) => {
+    const had = new Set(prev.nodes.map((n) => n.id))
+    for (const n of next.nodes) {
+      if (!had.has(n.id)) {
+        n.x = n.y = n.z = undefined
+        n.fx = n.fy = n.fz = undefined
+      }
+    }
+  }
 
   // Initial load: build the source for the active choice (saved pick, else the
   // VITE_API_URL default, else the bundle) and land on its entry view. Runtime
@@ -413,7 +428,10 @@ export default function App() {
         path = result.route
         // Lay out any path nodes that weren't loaded (existing nodes pinned).
         if (nextView.nodes.length > view.nodes.length)
-          runForceLayout(nextView, { pin: true, cluster: clusterForPinned(nextView) })
+          {
+            clearNewPositions(view, nextView)
+            runForceLayout(nextView, { pin: true, cluster: clusterForPinned(nextView) })
+          }
       } else {
         const local = shortestPath(view, from, id)
         path = local ?? [from, id] // unreachable → direct flight
@@ -465,7 +483,10 @@ export default function App() {
         nextView = result.view
         path = result.route
         if (nextView.nodes.length > view.nodes.length)
-          runForceLayout(nextView, { pin: true, cluster: clusterForPinned(nextView) })
+          {
+            clearNewPositions(view, nextView)
+            runForceLayout(nextView, { pin: true, cluster: clusterForPinned(nextView) })
+          }
       } else {
         const local = shortestPath(view, from, id)
         path = local ?? [from, id]
@@ -609,6 +630,7 @@ export default function App() {
   const reView = (next: (s: GraphSource, v: View) => Promise<View>) =>
     behindDoors(async (s, v) => {
       const nv = await next(s, v)
+      clearNewPositions(v, nv)
       runForceLayout(nv, { pin: true, cluster: clusterForPinned(nv) })
       return () => setView(nv)
     })

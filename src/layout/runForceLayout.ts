@@ -36,6 +36,27 @@ const placed = (n: GraphNode) => n.x != null && n.y != null && n.z != null
 // center + the optional nebula cluster force. Exposed so a caller can tick it
 // over animation frames (watch-the-reform) instead of to convergence at once.
 export function buildSimulation(graph: Graph, opts: LayoutOpts = {}) {
+  // The edges that exert link force: optionally drop cross-group edges so a
+  // cluster lays out free of cross-field tug (keep intra-group edges and any
+  // edge touching an ungrouped node). Computed first because seeding needs to
+  // know which new nodes have NO surviving link.
+  let linkEdges = graph.edges
+  if (opts.cluster?.isolate) {
+    const g = opts.cluster.groupOf
+    linkEdges = graph.edges.filter((e) => {
+      const a = graph.nodeById.get(e.source)
+      const b = graph.nodeById.get(e.target)
+      const ga = a ? g(a) : null
+      const gb = b ? g(b) : null
+      return !(ga != null && gb != null && ga !== gb)
+    })
+  }
+  const linked = new Set<string>()
+  for (const e of linkEdges) {
+    linked.add(e.source)
+    linked.add(e.target)
+  }
+
   if (opts.pin) {
     // Seed new nodes near an already-placed neighbor so they don't fly in from
     // the origin; pin everything that's already positioned.
@@ -50,13 +71,15 @@ export function buildSimulation(graph: Graph, opts: LayoutOpts = {}) {
       if (placed(n)) continue
       const jitter = () => (Math.random() - 0.5) * 30
       // Prefer seeding at the node's CLUSTER centroid: a short pinned settle then
-      // just holds it inside its field. A node whose only links cross fields
-      // (e.g. a path endpoint with isolate on) would otherwise have nothing to
-      // pull it across the gap in time, and stall between clouds.
+      // just holds it inside its field.
       let seed: [number, number, number] | null = null
+      let clustered = false
       if (opts.cluster && opts.cluster.strength > 0) {
         const k = opts.cluster.groupOf(n)
-        if (k != null) seed = opts.cluster.centroid(k)
+        if (k != null) {
+          seed = opts.cluster.centroid(k)
+          clustered = true
+        }
       }
       if (!seed) {
         const anchor = (graph.neighbors.get(n.id) ?? [])
@@ -67,6 +90,16 @@ export function buildSimulation(graph: Graph, opts: LayoutOpts = {}) {
       n.x = seed[0] + jitter()
       n.y = seed[1] + jitter()
       n.z = seed[2] + jitter()
+      // A clustered new node with NO surviving link (e.g. a path endpoint whose
+      // only edge crossed fields and was dropped by isolate) can't be settled by
+      // the sim — charge repulsion + centering would shove it out of its cloud,
+      // however strong the cluster pull. Pin it at its field centroid so it lands
+      // squarely inside. (Pin is cleared by unpinAll after the run.)
+      if (clustered && !linked.has(n.id)) {
+        n.fx = n.x
+        n.fy = n.y
+        n.fz = n.z
+      }
     }
   }
 
@@ -80,19 +113,6 @@ export function buildSimulation(graph: Graph, opts: LayoutOpts = {}) {
     }
   }
 
-  // Optionally drop cross-group edges so a cluster lays out free of cross-field
-  // tug (keep intra-group edges and any edge touching an ungrouped node).
-  let linkEdges = graph.edges
-  if (opts.cluster?.isolate) {
-    const g = opts.cluster.groupOf
-    linkEdges = graph.edges.filter((e) => {
-      const a = graph.nodeById.get(e.source)
-      const b = graph.nodeById.get(e.target)
-      const ga = a ? g(a) : null
-      const gb = b ? g(b) : null
-      return !(ga != null && gb != null && ga !== gb)
-    })
-  }
   const links = linkEdges.map((e) => ({ source: e.source, target: e.target }))
   const simulation = forceSimulation(graph.nodes, 3)
     .force(
