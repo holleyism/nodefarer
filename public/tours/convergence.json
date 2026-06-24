@@ -33,6 +33,20 @@
       "body": "Fly the course. We leave computer science, pass through that lone bridge, and arrive — in neuroscience, on a paper from 1982. A physicist's model of memory: a network of simple units settling into the stable states of an energy landscape. Four decades before the transformer, in a different field entirely, here is an ancestor of the idea.",
       "op": { "kind": "travelCourse", "inspect": true },
       "nextLabel": "Older still →"
+    },
+    {
+      "id": "physics",
+      "title": "Older still — and from physics",
+      "body": "The energy landscape wasn't born in neuroscience either. Reach one more step back, and a single citation leaves Hopfield's paper and crosses into another galaxy entirely — Physics. It lands on a 1986 work on spin glasses: disordered magnets whose mathematics of settling into low-energy states is exactly what Hopfield borrowed to make a network remember. Plot the course out of neuroscience and into physics.",
+      "op": { "kind": "plot", "to": "@physics" },
+      "nextLabel": "Cross into physics →"
+    },
+    {
+      "id": "into-physics",
+      "title": "Into physics",
+      "body": "Make the crossing. We leave neuroscience behind and land in physics — on a 1986 study of spin glasses, disordered magnets. It's the same mathematics: a rugged energy landscape, a system relaxing into a stable low-energy state. Physicists reached for it to explain magnets; Hopfield reached back for it to make a network remember. The transformer's lineage now runs through three fields and forty years — and the trail behind us stays lit.",
+      "op": { "kind": "travelCourse", "inspect": true },
+      "nextLabel": "And from biology →"
     }
   ]
 }
