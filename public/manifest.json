@@ -72,7 +72,9 @@
   "anchors": {
     "origin": "W2128084896",
     "bridge": "W3022112205",
-    "destination": "W2626778328"
+    "destination": "W2626778328",
+    "physics": "W2000449275",
+    "biochem": "W2158476854"
   },
   "tours": [
     {

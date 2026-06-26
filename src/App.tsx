@@ -210,6 +210,13 @@ export default function App() {
   // distinct "route" emphasis (see scene/RouteHighlight); the scanner shifts to
   // a describe/Travel view while it's set. Travelling or clearing empties it.
   const [plottedRoute, setPlottedRoute] = useState<string[]>([])
+  // The accumulated JOURNEY corridor: every node + edge actually travelled so
+  // far. It's kept visible (never folded away), highlighted as a trail, and
+  // exempt from the budget — so the narrative path builds up instead of the
+  // passed nodes re-folding once the active course clears. Reset on a fresh
+  // land / universe switch.
+  const [corridorNodes, setCorridorNodes] = useState<Set<string>>(() => new Set())
+  const [corridorEdges, setCorridorEdges] = useState<Set<string>>(() => new Set())
   // Bumped to auto-frame a freshly plotted course (turn + dolly so the route
   // fits, always including the destination). Carries the route world points.
   const [frameSignal, setFrameSignal] = useState(0)
@@ -221,6 +228,10 @@ export default function App() {
     // true → snap the gaze instantly (no animated turn), e.g. behind the doors.
     instant?: boolean
   } | null>(null)
+  // Overview pull-back (tour recap): pull the camera back to frame a set of world
+  // points (the whole journey corridor) at once.
+  const [overviewSignal, setOverviewSignal] = useState(0)
+  const [overviewPoints, setOverviewPoints] = useState<[number, number, number][] | null>(null)
   // Blast doors: shut the window while the universe is being (re)laid out.
   const [doorsClosed, setDoorsClosed] = useState(false)
   // Bottom-left status/error readout.
@@ -315,6 +326,21 @@ export default function App() {
       },
     }
   }
+  // A node merged into the view by path()/expand may carry a STALE position from
+  // an EARLIER view (the source's Materializer caches node instances for the whole
+  // session — e.g. the top-PageRank work is laid out once as the default anchor at
+  // app load). That stale x/y/z makes runForceLayout treat the node as
+  // already-placed and pin it where it sat, instead of seeding it into its field.
+  // Clear positions for nodes that are new to THIS view so they re-seed cleanly.
+  const clearNewPositions = (prev: View, next: View) => {
+    const had = new Set(prev.nodes.map((n) => n.id))
+    for (const n of next.nodes) {
+      if (!had.has(n.id)) {
+        n.x = n.y = n.z = undefined
+        n.fx = n.fy = n.fz = undefined
+      }
+    }
+  }
 
   // Initial load: build the source for the active choice (saved pick, else the
   // VITE_API_URL default, else the bundle) and land on its entry view. Runtime
@@ -339,11 +365,34 @@ export default function App() {
       setView(v)
       setCurrentId(v.anchorId)
       setTrail([v.anchorId])
+      setCorridorNodes(new Set([v.anchorId]))
+      setCorridorEdges(new Set())
     })()
     return () => {
       cancelled = true
     }
   }, [])
+
+  // Append a travelled path to the accumulated journey corridor (nodes + the
+  // edges between consecutive stops), so it stays visible/lit as the tour builds.
+  const extendCorridor = (path: string[], v: View) => {
+    if (path.length < 1) return
+    setCorridorNodes((prev) => {
+      const n = new Set(prev)
+      for (const id of path) n.add(id)
+      return n
+    })
+    setCorridorEdges((prev) => {
+      const n = new Set(prev)
+      for (let i = 0; i < path.length - 1; i++) {
+        const e = (v.incident.get(path[i]) ?? []).find(
+          (ed) => ed.source === path[i + 1] || ed.target === path[i + 1],
+        )
+        if (e) n.add(e.id)
+      }
+      return n
+    })
+  }
 
   // Load the shipped-demo catalog once (drives the universe picker's demo list).
   useEffect(() => {
@@ -417,7 +466,10 @@ export default function App() {
         path = result.route
         // Lay out any path nodes that weren't loaded (existing nodes pinned).
         if (nextView.nodes.length > view.nodes.length)
-          runForceLayout(nextView, { pin: true, cluster: clusterForPinned(nextView) })
+          {
+            clearNewPositions(view, nextView)
+            runForceLayout(nextView, { pin: true, cluster: clusterForPinned(nextView) })
+          }
       } else {
         const local = shortestPath(view, from, id)
         path = local ?? [from, id] // unreachable → direct flight
@@ -431,6 +483,7 @@ export default function App() {
         if (e) reveal.add(e.id)
       }
       setShownEdgeIds(reveal)
+      extendCorridor(path, nextView)
       if (nextView !== view) setView(nextView)
       setRoute(path.slice(1))
     })()
@@ -469,7 +522,10 @@ export default function App() {
         nextView = result.view
         path = result.route
         if (nextView.nodes.length > view.nodes.length)
-          runForceLayout(nextView, { pin: true, cluster: clusterForPinned(nextView) })
+          {
+            clearNewPositions(view, nextView)
+            runForceLayout(nextView, { pin: true, cluster: clusterForPinned(nextView) })
+          }
       } else {
         const local = shortestPath(view, from, id)
         path = local ?? [from, id]
@@ -503,8 +559,12 @@ export default function App() {
     if (!view || traveling || plottedRoute.length < 2) return
     const path = plottedRoute
     setShownEdgeIds((prev) => new Set([...prev, ...pathEdgeIds(view, path)]))
+    extendCorridor(path, view)
     setFrameTarget(null)
-    reframeForMove()
+    // Fly FROM the course's existing framing (set by `plot`): keep the camera
+    // following but DON'T recenter to the default stance — recentering would snap
+    // the gaze/zoom away from the framed route and then animate back toward it.
+    setFollowing(true)
     setRoute(path.slice(1))
   }
   // Drop a plotted course (back to search) without travelling.
@@ -581,6 +641,10 @@ export default function App() {
   // flashes through a half-open door. We wait for whichever finishes last: the
   // doors closing or the async compute.
   const pendingApply = useRef<(() => void) | null>(null)
+  // The deferred compute for a view swap: held until the doors are FULLY shut, so
+  // the relayout (which mutates node positions in place) never animates in the
+  // open before the doors cover it.
+  const pendingPrepare = useRef<(() => void) | null>(null)
   const doorsShutRef = useRef(false)
   const finishBehindDoors = () => {
     if (!doorsShutRef.current || !pendingApply.current) return
@@ -595,42 +659,60 @@ export default function App() {
   }
   const handleDoorsClosed = () => {
     doorsShutRef.current = true
-    finishBehindDoors()
+    // Doors are now fully shut — only NOW run the deferred compute behind them.
+    const run = pendingPrepare.current
+    if (run) {
+      pendingPrepare.current = null
+      run()
+    } else {
+      finishBehindDoors()
+    }
   }
   // prepare(s, view) computes the next view and returns the state mutation to
-  // run once the doors are shut.
+  // run once the doors are shut. The compute itself is deferred until the doors
+  // have fully closed (so nothing animates in the open), then applied + revealed.
   const behindDoors = (prepare: (s: GraphSource, v: View) => Promise<() => void>) => {
     const s = sourceRef.current
     if (!s || !view || traveling) return
     pendingApply.current = null
-    // If the doors are already shut (e.g. held manually), we're ready now;
-    // otherwise wait for the close transition to report in.
-    doorsShutRef.current = doorsClosed
-    if (!doorsClosed) setDoorsClosed(true)
-    // Never leave the doors stuck shut: if the compute errors or stalls, apply a
-    // no-op and reopen so the scene comes back (and log why).
-    let done = false
-    const settle = (apply: () => void) => {
-      if (done) return
-      done = true
-      clearTimeout(timer)
-      pendingApply.current = apply
-      finishBehindDoors()
-    }
-    const timer = setTimeout(() => {
-      notify('Timed out updating the view — try again.', 'error')
-      doorsShutRef.current = true
-      settle(() => {})
-    }, 8000)
-    ;(async () => {
-      try {
-        settle(await prepare(s, view))
-      } catch (err) {
-        notify(`Couldn't update the view: ${err instanceof Error ? err.message : String(err)}`, 'error')
-        doorsShutRef.current = true
-        settle(() => {})
+    const run = () => {
+      // Never leave the doors stuck shut: if the compute errors or stalls, apply a
+      // no-op and reopen so the scene comes back (and log why).
+      let done = false
+      const settle = (apply: () => void) => {
+        if (done) return
+        done = true
+        clearTimeout(timer)
+        pendingApply.current = apply
+        finishBehindDoors()
       }
-    })()
+      const timer = setTimeout(() => {
+        notify('Timed out updating the view — try again.', 'error')
+        settle(() => {})
+      }, 8000)
+      ;(async () => {
+        try {
+          settle(await prepare(s, view))
+        } catch (err) {
+          notify(`Couldn't update the view: ${err instanceof Error ? err.message : String(err)}`, 'error')
+          settle(() => {})
+        }
+      })()
+    }
+    if (doorsShutRef.current) {
+      run() // already fully shut (e.g. held manually) → compute now
+    } else {
+      pendingPrepare.current = run
+      if (!doorsClosed) setDoorsClosed(true) // close first; handleDoorsClosed runs it
+      // Guard: if the close transition never reports, run anyway so we don't hang.
+      setTimeout(() => {
+        if (pendingPrepare.current === run) {
+          pendingPrepare.current = null
+          doorsShutRef.current = true
+          run()
+        }
+      }, 2000)
+    }
   }
 
   // Expand/collapse: incremental relayout pins placed nodes so only the change
@@ -638,6 +720,7 @@ export default function App() {
   const reView = (next: (s: GraphSource, v: View) => Promise<View>) =>
     behindDoors(async (s, v) => {
       const nv = await next(s, v)
+      clearNewPositions(v, nv)
       runForceLayout(nv, { pin: true, cluster: clusterForPinned(nv) })
       return () => setView(nv)
     })
@@ -661,6 +744,8 @@ export default function App() {
         setView(nv)
         setCurrentId(nv.anchorId)
         setTrail([nv.anchorId])
+        setCorridorNodes(new Set([nv.anchorId]))
+        setCorridorEdges(new Set())
         setSelectedId(null)
         setRoute([])
         clearEdges()
@@ -712,6 +797,8 @@ export default function App() {
       setView(nv)
       setCurrentId(nv.anchorId)
       setTrail([nv.anchorId])
+      setCorridorNodes(new Set([nv.anchorId]))
+      setCorridorEdges(new Set())
       setSelectedId(null)
       setRoute([])
       clearEdges()
@@ -1103,6 +1190,20 @@ export default function App() {
         }
         return nextFrame()
       }
+      case 'overview': {
+        // Pull back to frame the whole travelled corridor at once.
+        if (view) {
+          const pts = [...corridorNodes]
+            .map((id) => view.nodeById.get(id))
+            .filter((n): n is NonNullable<typeof n> => n != null && n.x != null)
+            .map((n) => [n.x!, n.y!, n.z!] as [number, number, number])
+          if (pts.length) {
+            setOverviewPoints(pts)
+            setOverviewSignal((s) => s + 1)
+          }
+        }
+        return nextFrame()
+      }
       default:
         return Promise.resolve()
     }
@@ -1170,6 +1271,7 @@ export default function App() {
     if (selectedId) specials.add(selectedId)
     for (const id of route) specials.add(id)
     for (const id of plottedRoute) specials.add(id)
+    for (const id of corridorNodes) specials.add(id) // the accumulated journey stays
     // The active travel lane: edges between consecutive nodes of [current, …route],
     // plus a plotted-but-not-yet-travelled course. These ignore the per-kind
     // toggle and the budget clip so the course is visible (in flight or plotted).
@@ -1184,6 +1286,7 @@ export default function App() {
     }
     if (currentId && route.length) addLane([currentId, ...route])
     if (plottedRoute.length > 1) addLane(plottedRoute)
+    for (const id of corridorEdges) lane.add(id) // accumulated corridor edges always show
     // Bound the view first (reversible mask; current/selected always kept), then
     // declutter what survives.
     const has = (o?: Record<string, unknown>) => o != null && Object.keys(o).length > 0
@@ -1200,6 +1303,7 @@ export default function App() {
     // a bound mid-flight or while a course sits plotted.
     for (const id of route) keep.add(id)
     for (const id of plottedRoute) keep.add(id)
+    for (const id of corridorNodes) keep.add(id)
     let base = active ? filterView(view, predicate, keep) : view
     // Fold off-corridor branches once parked (never mid-flight, so nothing
     // vanishes under the ship while travelling).
@@ -1210,7 +1314,7 @@ export default function App() {
       edges: showEdges,
       wormholes: showWormholes,
     }, lane)
-  }, [view, edgeBudget, edgeSort, shownEdgeIds, hiddenEdgeIds, showEdges, showWormholes, predicate, autoCollapse, traveling, trail, currentId, selectedId, route, plottedRoute])
+  }, [view, edgeBudget, edgeSort, shownEdgeIds, hiddenEdgeIds, showEdges, showWormholes, predicate, autoCollapse, traveling, trail, currentId, selectedId, route, plottedRoute, corridorNodes, corridorEdges])
 
   // Group assignment over the FULL view (with propagation), shared by the nebula
   // bodies and the fold mask (Plan H2/H2b). Null when nebulae are off. Declared
@@ -1251,7 +1355,9 @@ export default function App() {
         cz += n.z
         m++
       }
-      if (m < 2) continue
+      // Draw a body for any non-empty field — a single-node field (e.g. a distant
+      // ancestor reached by one citation) still reads as its own small galaxy.
+      if (m < 1) continue
       cx /= m
       cy /= m
       cz /= m
@@ -1266,7 +1372,9 @@ export default function App() {
       }
       dists.sort((a, b) => a - b)
       const r = dists[Math.min(dists.length - 1, Math.floor((dists.length - 1) * nebulaCoverage))] ?? 0
-      bodies.push({ key, label: key, color: groupColor(key, palette), center: [cx, cy, cz], radius: r + 18, count: m, folded: false, focused: false, hovered: false })
+      // Floor the radius so a sparse (1–2 member) field still reads as a galaxy.
+      const radius = Math.max(r + 18, 40)
+      bodies.push({ key, label: key, color: groupColor(key, palette), center: [cx, cy, cz], radius, count: m, folded: false, focused: false, hovered: false })
     }
     return bodies
     // activeLegend() reads atlasRef (stable across a session); `view`/groupAssign
@@ -1349,7 +1457,7 @@ export default function App() {
           groupAssign,
           foldedGroups,
           new Set(
-            [currentId, selectedId, ...plottedRoute, ...route].filter(Boolean) as string[],
+            [currentId, selectedId, ...plottedRoute, ...route, ...corridorNodes].filter(Boolean) as string[],
           ),
         )
       : display.display
@@ -1413,6 +1521,17 @@ export default function App() {
     plottedRoute.length > 1
       ? { kind: 'route' as const, nodeIds: plottedRoute, edgeIds: [...pathEdgeIds(view, plottedRoute)] }
       : null
+  // The accumulated journey corridor as a persistent "route" emphasis, so the
+  // whole travelled path stays lit as the narrative builds (not just the active
+  // hop). Only edges still present in the view are highlightable.
+  const corridorEmphasis =
+    corridorNodes.size > 1
+      ? {
+          kind: 'route' as const,
+          nodeIds: [...corridorNodes].filter((id) => view.nodeById.has(id)),
+          edgeIds: [...corridorEdges].filter((id) => view.edgeById.has(id)),
+        }
+      : null
 
   // The inspected nebula's VISIBLE members highlighted in place (Plan H3) — the
   // cheap "mark this field" overlay, tinted with the nebula skin. Only when the
@@ -1430,8 +1549,11 @@ export default function App() {
           return { kind: 'nebula' as const, nodeIds: [...ids], edgeIds }
         })()
       : null
-  // Nebula first, route last → the route wins on any shared member.
-  const emphases = [nebulaEmphasis, routeEmphasis].filter((e): e is Emphasis => e != null)
+  // Nebula first, then the accumulated corridor, then the active plotted route —
+  // later wins on any shared member (so the active hop reads over the trail).
+  const emphases = [nebulaEmphasis, corridorEmphasis, routeEmphasis].filter(
+    (e): e is Emphasis => e != null,
+  )
 
   // Locks stay live in flight, with the destination always held; parked,
   // the inspected node keeps its reticle even when it falls outside the
@@ -1507,6 +1629,8 @@ export default function App() {
           recenterKeepZoom={recenterKeepZoom}
           frameSignal={frameSignal}
           frameTarget={frameTarget}
+          overviewSignal={overviewSignal}
+          overviewPoints={overviewPoints}
           onUnlock={() => setFollowing(false)}
           onTaggedChange={setTaggedIds}
           onSelect={handleSelect}

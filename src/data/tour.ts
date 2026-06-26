@@ -55,6 +55,10 @@ export type TourOp =
   // e.g. a recap "look back" toward where we came from; `edge` lights a single
   // edge. Used for "look at this" beats and the closing recap.
   | { kind: 'look'; focus?: string; edge?: { from: string; to: string; rel: string } }
+  // Pull the camera WAY back to frame the whole travelled journey corridor at
+  // once (a recap finale): slerp + dolly to a vantage that fits every node the
+  // ship has passed through.
+  | { kind: 'overview' }
   // Toggle the nebula grouping (fields → galaxies). `watch` (default true) runs
   // the regroup as a visible reform with the doors open, so the "sky resolves
   // into fields" beat animates; false snaps it behind the doors. Grouping uses

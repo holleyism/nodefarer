@@ -52,6 +52,8 @@ interface Props {
     zoom?: boolean
     instant?: boolean
   } | null
+  overviewSignal: number
+  overviewPoints: [number, number, number][] | null
   onUnlock: () => void
   onTaggedChange: (ids: string[]) => void
   onSelect: (id: string) => void
@@ -85,6 +87,8 @@ export function GraphScene({
   recenterKeepZoom,
   frameSignal,
   frameTarget,
+  overviewSignal,
+  overviewPoints,
   onUnlock,
   onTaggedChange,
   onSelect,
@@ -152,6 +156,8 @@ export function GraphScene({
         recenterKeepZoom={recenterKeepZoom}
         frameSignal={frameSignal}
         frameTarget={frameTarget}
+        overviewSignal={overviewSignal}
+        overviewPoints={overviewPoints}
         onUnlock={onUnlock}
         onArrive={onArrive}
       />

@@ -5,19 +5,20 @@ import type { GraphNode } from '../types'
 import { shipBus } from './shipBus'
 
 interface Travel {
+  // 'turn' orbits the stance into the edge-relative frame; 'fly' slides straight.
   phase: 'turn' | 'fly'
-  // keepOrbit: fly to the same relative orbit spot on the next node without
-  // reorienting (used when the ship is orbited, so the view doesn't jump).
-  keepOrbit: boolean
   t: number
-  from: THREE.Vector3
-  to: THREE.Vector3
-  fromYaw: number
-  fromPitch: number
-  toYaw: number
-  toPitch: number
+  nodePos: THREE.Vector3 // node we depart from (orbit pivot + slide start)
+  destPos: THREE.Vector3 // node we fly to
+  up: THREE.Vector3 // edge-relative hover direction (perpendicular to the edge)
+  fromStance: THREE.Quaternion
+  toStance: THREE.Quaternion
+  fromLookYaw: number
+  fromLookPitch: number
   turnDuration: number
   flyDuration: number
+  // translate = unlocked: keep the user's current frame, just slide (no reorient).
+  translate: boolean
 }
 
 // A camera re-aim that runs alongside the flight (used by "follow course").
@@ -87,6 +88,11 @@ interface Props {
     zoom?: boolean
     instant?: boolean
   } | null
+  // Bumped to pull WAY back to an overview that frames every supplied point (the
+  // whole journey corridor) — slerps the orientation + dollies out to a 3/4-from-
+  // above vantage. Not parked on a node; held until the next navigation.
+  overviewSignal?: number
+  overviewPoints?: [number, number, number][] | null
   onUnlock: () => void
   onArrive: () => void
 }
@@ -96,7 +102,7 @@ interface Props {
 // leg starts with an auto-aim turn toward the next hop; dragging mid-flight
 // unlocks the camera (the view is then never reset at waypoints) until
 // "follow course" re-engages it.
-export function ShipCamera({ currentNode, targetNode, following, followSignal, recenterSignal = 0, recenterKeepZoom = false, frameSignal = 0, frameTarget = null, onUnlock, onArrive }: Props) {
+export function ShipCamera({ currentNode, targetNode, following, followSignal, recenterSignal = 0, recenterKeepZoom = false, frameSignal = 0, frameTarget = null, overviewSignal = 0, overviewPoints = null, onUnlock, onArrive }: Props) {
   const camera = useThree((s) => s.camera) as THREE.PerspectiveCamera
   const gl = useThree((s) => s.gl)
   // Gaze: yaw/pitch *relative to the stance frame* (up = outward normal), so
@@ -116,6 +122,10 @@ export function ShipCamera({ currentNode, targetNode, following, followSignal, r
   const probe = useMemo(() => new THREE.PerspectiveCamera(), [])
   const travel = useRef<Travel | null>(null)
   const aim = useRef<Aim | null>(null)
+  // Animates the orbit STANCE toward a target (used by the recap to swing around
+  // to a vantage framing the whole corridor — entirely via the normal parked
+  // controls, so the camera stays a valid parked pose with no snap on takeover).
+  const stanceAnim = useRef<{ from: THREE.Quaternion; to: THREE.Quaternion; t: number; dur: number } | null>(null)
   // Set the instant a leg finishes (camera sitting at the arrived node's parked
   // spot) and cleared once the new currentNode prop commits. While set, the
   // parked branch holds position instead of recomputing from currentRef — which
@@ -145,6 +155,7 @@ export function ShipCamera({ currentNode, targetNode, following, followSignal, r
   useEffect(() => {
     // currentNode is now in sync — the just-arrived hold can release.
     justArrived.current = false
+    stanceAnim.current = null // a new node ends any scripted recap orbit
     if (!travel.current) {
       // Re-anchor at a new node, preserving the current orbit stance + zoom.
       const offset = Y_AXIS.clone().applyQuaternion(stance.current).multiplyScalar(radius.current)
@@ -170,6 +181,7 @@ export function ShipCamera({ currentNode, targetNode, following, followSignal, r
     look.current.yaw = 0
     look.current.pitch = 0
     aim.current = null
+    stanceAnim.current = null
     // Restore the default dolly distance unless this re-frame keeps the zoom
     // (manual travel preserves the user's chosen distance; scripted moves and
     // plotted-course travel reset to the standard viewing zoom).
@@ -185,72 +197,83 @@ export function ShipCamera({ currentNode, targetNode, following, followSignal, r
 
   useEffect(() => {
     if (!targetNode) return
-    const from = camera.position.clone()
-    const targetPos = new THREE.Vector3(targetNode.x!, targetNode.y!, targetNode.z!)
+    const destPos = new THREE.Vector3(targetNode.x!, targetNode.y!, targetNode.z!)
+    const n = currentRef.current
+    const nodePos = new THREE.Vector3(n.x!, n.y!, n.z!)
     aim.current = null
+    stanceAnim.current = null
 
-    // Orbited: keep the same relative orbit on the next node — translate only,
-    // no reorientation, so the view doesn't jump. Stance/gaze persist.
-    if (Math.abs(stance.current.w) < 0.9999) {
-      const offset = Y_AXIS.clone().applyQuaternion(stance.current).multiplyScalar(radius.current)
-      const to = targetPos.add(offset)
-      travel.current = {
-        phase: 'fly',
-        keepOrbit: true,
-        t: 0,
-        from,
-        to,
-        fromYaw: look.current.yaw,
-        fromPitch: look.current.pitch,
-        toYaw: look.current.yaw,
-        toPitch: look.current.pitch,
-        turnDuration: 0,
-        flyDuration: THREE.MathUtils.clamp(from.distanceTo(to) / 45, 1.2, 4),
+    // Travel uses an EDGE-RELATIVE frame: "up" is perpendicular to the edge, not
+    // world-up, so the ship hovers above the lane by `radius` whatever the edge's
+    // orientation — and a near-vertical edge is no longer flown straight down its
+    // middle. "Up is relative": the frame persists, so the world can roll across
+    // a journey (no global up). An unlocked camera keeps the user's own frame.
+    const translate = !followingRef.current
+    let up: THREE.Vector3
+    let toStance: THREE.Quaternion
+    if (translate) {
+      up = Y_AXIS.clone().applyQuaternion(stance.current)
+      toStance = stance.current.clone()
+    } else {
+      const fwd = destPos.clone().sub(nodePos)
+      if (fwd.lengthSq() < 1e-6) fwd.set(0, 0, 1)
+      fwd.normalize()
+      // Perpendicular CLOSEST to the current up: project current up onto the
+      // edge's perpendicular plane. If the edge is parallel to it (projection
+      // collapses), fall back to the current right vector (an accepted roll).
+      const curUp = Y_AXIS.clone().applyQuaternion(stance.current)
+      up = curUp.addScaledVector(fwd, -curUp.dot(fwd))
+      if (up.lengthSq() < 1e-5) {
+        const curRight = X_AXIS.clone().applyQuaternion(stance.current)
+        up = curRight.addScaledVector(fwd, -curRight.dot(fwd))
+        if (up.lengthSq() < 1e-5) up = new THREE.Vector3(0, 1, 0).addScaledVector(fwd, -fwd.y)
       }
-      return
+      up.normalize()
+      // Stance whose local Y = up and local −Z = fwd, so the 0° gaze looks down
+      // the lane toward the destination.
+      const zAxis = fwd.clone().negate() // camera +Z is opposite the view dir
+      const xAxis = new THREE.Vector3().crossVectors(up, zAxis).normalize()
+      toStance = new THREE.Quaternion().setFromRotationMatrix(
+        new THREE.Matrix4().makeBasis(xAxis, up, zAxis),
+      )
     }
-
-    // Default top-down: auto-aim turn toward the hop, then fly. The stance is
-    // identity here, so look is already the world-frame yaw/pitch. Park at the
-    // current dolly distance above the node, not the fixed default.
-    const to = targetPos.add(Y_AXIS.clone().multiplyScalar(radius.current))
-    const face = faceYawPitch(from, to)
-    // Aim via the shortest yaw arc from wherever the user left the view.
-    const toYaw = look.current.yaw + wrapPi(face.yaw - look.current.yaw)
-    const angle = Math.hypot(toYaw - look.current.yaw, face.pitch - look.current.pitch)
+    const turnAngle = translate ? 0 : stance.current.angleTo(toStance)
+    const needTurn = followingRef.current && turnAngle > 0.01
     travel.current = {
-      // An unlocked camera keeps the user's view: skip the auto-aim turn.
-      phase: followingRef.current ? 'turn' : 'fly',
-      keepOrbit: false,
+      phase: needTurn ? 'turn' : 'fly',
       t: 0,
-      from,
-      to,
-      fromYaw: look.current.yaw,
-      fromPitch: look.current.pitch,
-      toYaw,
-      toPitch: face.pitch,
-      // Scale the turn to the angle so small course corrections at journey
-      // waypoints don't stall the flight.
-      turnDuration: THREE.MathUtils.clamp(angle * 0.45, 0.15, 0.9),
-      flyDuration: THREE.MathUtils.clamp(from.distanceTo(to) / 45, 1.2, 4),
+      nodePos,
+      destPos,
+      up,
+      fromStance: stance.current.clone(),
+      toStance,
+      fromLookYaw: look.current.yaw,
+      fromLookPitch: look.current.pitch,
+      turnDuration: THREE.MathUtils.clamp(turnAngle * 0.5, 0.15, 1.1),
+      flyDuration: THREE.MathUtils.clamp(nodePos.distanceTo(destPos) / 45, 1.2, 4),
+      translate,
+    }
+    // No turn: snap straight into the edge frame (tiny or skipped orbit).
+    if (!needTurn && !translate) {
+      stance.current.copy(toStance)
+      look.current.yaw = 0
+      look.current.pitch = 0
     }
   }, [targetNode, camera, stance])
 
-  // "Follow course" pressed: swing back toward the current hop while flying.
+  // "Follow course" pressed: swing the gaze back down the lane. In the edge frame
+  // the lane is the 0° gaze, so this just eases any look-around back to zero
+  // (mid-flight unlocking only changes `look`, never the stance — orbit is parked).
   useEffect(() => {
     if (followSignal === 0) return
-    const tr = travel.current
-    if (!tr || tr.keepOrbit) return
-    const face = faceYawPitch(camera.position, tr.to)
-    const toYaw = look.current.yaw + wrapPi(face.yaw - look.current.yaw)
-    const angle = Math.hypot(toYaw - look.current.yaw, face.pitch - look.current.pitch)
+    if (!travel.current) return
     aim.current = {
       t: 0,
       fromYaw: look.current.yaw,
       fromPitch: look.current.pitch,
-      toYaw,
-      toPitch: face.pitch,
-      duration: THREE.MathUtils.clamp(angle * 0.45, 0.2, 0.9),
+      toYaw: 0,
+      toPitch: 0,
+      duration: 0.5,
     }
   }, [followSignal, camera])
 
@@ -359,6 +382,57 @@ export function ShipCamera({ currentNode, targetNode, following, followSignal, r
     }
   }, [frameSignal, frameTarget]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Overview pull-back (recap): frame every supplied point. Pick a 3/4-from-above
+  // vantage and the dolly distance that fits the points' bounding sphere, then
+  // slerp orientation + lerp position there from wherever we are.
+  useEffect(() => {
+    if (overviewSignal === 0 || !overviewPoints || overviewPoints.length === 0) return
+    const pts = overviewPoints.map((p) => new THREE.Vector3(p[0], p[1], p[2]))
+    const center = pts.reduce((a, p) => a.add(p), new THREE.Vector3()).multiplyScalar(1 / pts.length)
+    let r = 0
+    for (const p of pts) r = Math.max(r, p.distanceTo(center))
+    r = Math.max(r, 60)
+    // Distance to fit the corridor's bounding sphere, and a vantage point.
+    const vHalf = THREE.MathUtils.degToRad(camera.fov) / 2
+    const hHalf = Math.atan(Math.tan(vHalf) * camera.aspect)
+    const D = (r / Math.sin(Math.min(vHalf, hHalf))) * 1.15
+    const dir = new THREE.Vector3(0.3, 0.85, 0.45).normalize() // high, slightly to the side
+    const camPos = center.clone().addScaledVector(dir, D)
+
+    // Express that pose purely with the USER controls — orbit height (radius),
+    // orbit position (stance), view direction (look) — anchored on the current
+    // node, so it's a normal parked pose and taking over from it never snaps.
+    const node = currentRef.current
+    const nodeVec = new THREE.Vector3(node.x!, node.y!, node.z!)
+    const up = camPos.clone().sub(nodeVec)
+    const newRadius = THREE.MathUtils.clamp(up.length(), MIN_R, MAX_R)
+    up.normalize()
+    // Stance with Y = up and a horizontal X (minimal roll).
+    let xAxis = new THREE.Vector3().crossVectors(up, Y_AXIS)
+    if (xAxis.lengthSq() < 1e-6) xAxis = new THREE.Vector3(1, 0, 0)
+    xAxis.normalize()
+    const zAxis = new THREE.Vector3().crossVectors(xAxis, up).normalize()
+    const toStance = new THREE.Quaternion().setFromRotationMatrix(
+      new THREE.Matrix4().makeBasis(xAxis, up, zAxis),
+    )
+    // Gaze toward the corridor centre, as yaw/pitch in that stance frame.
+    const fLocal = center.clone().sub(camPos).normalize().applyQuaternion(toStance.clone().invert())
+    const yaw = Math.atan2(-fLocal.x, -fLocal.z)
+    const pitch = Math.asin(THREE.MathUtils.clamp(fLocal.y, -1, 1))
+
+    travel.current = null
+    stanceAnim.current = { from: stance.current.clone(), to: toStance, t: 0, dur: 1.8 }
+    radiusAnim.current = { from: radius.current, to: newRadius, t: 0, dur: 1.8 }
+    aim.current = {
+      t: 0,
+      fromYaw: look.current.yaw,
+      fromPitch: look.current.pitch,
+      toYaw: look.current.yaw + wrapPi(yaw - look.current.yaw),
+      toPitch: pitch,
+      duration: 1.8,
+    }
+  }, [overviewSignal]) // eslint-disable-line react-hooks/exhaustive-deps
+
   useEffect(() => {
     const el = gl.domElement
     // Active pressed pointers by id → last screen position. One pointer =
@@ -405,7 +479,17 @@ export function ShipCamera({ currentNode, targetNode, following, followSignal, r
       stance.current.normalize()
     }
 
+    // Taking the controls cancels any scripted camera move (recap orbit/dolly/
+    // gaze) IN PLACE — the camera is already a valid parked pose, so control
+    // continues from exactly where it is, no snap.
+    const grabControls = () => {
+      stanceAnim.current = null
+      radiusAnim.current = null
+      aim.current = null
+    }
+
     const onDown = (e: PointerEvent) => {
+      grabControls()
       if (e.pointerType === 'mouse') {
         // Left = look, right or Shift+left = orbit; ignore middle/back/forward.
         if (e.button === 2 || (e.button === 0 && e.shiftKey)) orbitMode = true
@@ -472,6 +556,7 @@ export function ShipCamera({ currentNode, targetNode, following, followSignal, r
     }
     const onWheel = (e: WheelEvent) => {
       e.preventDefault()
+      grabControls()
       // Scroll out (positive deltaY) dollies away to frame the whole graph;
       // scroll in pulls up close to inspect a node. Exponential = even feel.
       dolly(Math.exp(e.deltaY * 0.0015))
@@ -496,27 +581,46 @@ export function ShipCamera({ currentNode, targetNode, following, followSignal, r
   }, [gl, camera])
 
   useFrame((_, delta) => {
-    // Animated dolly (auto-frame): ease the parked distance toward its target.
+    // Animated dolly (auto-frame / recap): ease the parked distance toward target.
     const ra = radiusAnim.current
     if (ra) {
       ra.t = Math.min(1, ra.t + delta / ra.dur)
       radius.current = ra.from + (ra.to - ra.from) * smoothstep(ra.t)
       if (ra.t >= 1) radiusAnim.current = null
     }
+    // Animated orbit (recap): ease the stance toward its target. Parked, this
+    // swings the ship around the node — a normal orbit, just scripted.
+    const sa = stanceAnim.current
+    if (sa) {
+      sa.t = Math.min(1, sa.t + delta / sa.dur)
+      stance.current.slerpQuaternions(sa.from, sa.to, smoothstep(sa.t))
+      if (sa.t >= 1) stanceAnim.current = null
+    }
     const tr = travel.current
     if (tr) {
       if (tr.phase === 'turn') {
+        // Orbit the stance into the edge frame around the departing node, easing
+        // any prior look-around back to a 0° (down-the-lane) gaze.
         tr.t = Math.min(1, tr.t + delta / tr.turnDuration)
         const s = smoothstep(tr.t)
-        look.current.yaw = tr.fromYaw + (tr.toYaw - tr.fromYaw) * s
-        look.current.pitch = tr.fromPitch + (tr.toPitch - tr.fromPitch) * s
+        stance.current.slerpQuaternions(tr.fromStance, tr.toStance, s)
+        look.current.yaw = tr.fromLookYaw * (1 - s)
+        look.current.pitch = tr.fromLookPitch * (1 - s)
+        v1.copy(Y_AXIS).applyQuaternion(stance.current).multiplyScalar(radius.current)
+        camera.position.copy(tr.nodePos).add(v1)
         if (tr.t >= 1) {
+          stance.current.copy(tr.toStance)
+          look.current.yaw = 0
+          look.current.pitch = 0
           tr.phase = 'fly'
           tr.t = 0
         }
       } else {
+        // Straight slide, hovering by up·radius (edge-relative) at both ends.
         tr.t = Math.min(1, tr.t + delta / tr.flyDuration)
-        camera.position.lerpVectors(tr.from, tr.to, smoothstep(tr.t))
+        nodePos.copy(tr.nodePos).lerp(tr.destPos, smoothstep(tr.t))
+        v1.copy(tr.up).multiplyScalar(radius.current)
+        camera.position.copy(nodePos).add(v1)
         if (tr.t >= 1) {
           travel.current = null
           // Hold position here until currentNode catches up (see justArrived).
