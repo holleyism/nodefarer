@@ -73,6 +73,12 @@ interface Props {
   onPlotCourse: (id: string) => void
   onTravelCourse: () => void
   onClearCourse: () => void
+  // Course-scrub: wheel-travel the plotted course manually. scrubIndex is the
+  // route node the ship is nearest; onDockCourse(i) commits the preview there.
+  scrubMode: boolean
+  scrubIndex: number
+  onToggleScrub: () => void
+  onDockCourse: (index: number) => void
   // Guided tours from the Atlas catalog (Plan G2); `file` is the path under the
   // source root. Each plays over the bundle via the same exploration engine as
   // manual navigation (see src/data/tour.ts).
@@ -89,6 +95,8 @@ interface Props {
   nebulaLabel: string
   groupStrength: number
   nebulaSpacing: number
+  layoutSpacing: number
+  onLayoutSpacing: (value: number) => void
   watchReform: boolean
   nebulaIsolate: boolean
   onToggleNebula: () => void
@@ -156,6 +164,10 @@ export function Hud({
   onPlotCourse,
   onTravelCourse,
   onClearCourse,
+  scrubMode,
+  scrubIndex,
+  onToggleScrub,
+  onDockCourse,
   tours,
   onStartTour,
   sourceChoice,
@@ -167,6 +179,8 @@ export function Hud({
   nebulaLabel,
   groupStrength,
   nebulaSpacing,
+  layoutSpacing,
+  onLayoutSpacing,
   watchReform,
   nebulaIsolate,
   onToggleNebula,
@@ -297,6 +311,10 @@ export function Hud({
               onTravelCourse()
             }}
             onClear={onClearCourse}
+            scrubMode={scrubMode}
+            scrubIndex={scrubIndex}
+            onToggleScrub={onToggleScrub}
+            onDock={onDockCourse}
           />
         ) : (
           <SearchBar
@@ -411,6 +429,8 @@ export function Hud({
           nebulaLabel={nebulaLabel}
           groupStrength={groupStrength}
           nebulaSpacing={nebulaSpacing}
+          layoutSpacing={layoutSpacing}
+          onLayoutSpacing={onLayoutSpacing}
           watchReform={watchReform}
           nebulaIsolate={nebulaIsolate}
           onToggleNebula={onToggleNebula}

@@ -67,6 +67,28 @@ function faceYawPitch(from: THREE.Vector3, to: THREE.Vector3) {
   return { yaw: e.y, pitch: e.x }
 }
 
+// Edge-relative frame for course-scrub: given a (normalized) travel direction
+// `fwd` and the current outward `curUp`, return a stance whose local Y = the
+// hover `up` (perpendicular to fwd, closest to curUp) and local −Z = fwd, so the
+// 0° gaze looks straight down the lane. Standalone (not shared with travel) so
+// the existing travel/tour camera math is left exactly as it was.
+function edgeStance(fwd: THREE.Vector3, curUp: THREE.Vector3) {
+  let up = curUp.clone().addScaledVector(fwd, -curUp.dot(fwd))
+  if (up.lengthSq() < 1e-5) {
+    const alt = Math.abs(fwd.y) < 0.9 ? Y_AXIS : X_AXIS
+    up = alt.clone().addScaledVector(fwd, -alt.dot(fwd))
+  }
+  up.normalize()
+  const zAxis = fwd.clone().negate()
+  const xAxis = new THREE.Vector3().crossVectors(up, zAxis).normalize()
+  return new THREE.Quaternion().setFromRotationMatrix(
+    new THREE.Matrix4().makeBasis(xAxis, up, zAxis),
+  )
+}
+
+// Scroll-wheel arc-length per wheel delta when scrubbing a course.
+const SCRUB_SENS = 0.25
+
 interface Props {
   currentNode: GraphNode
   targetNode: GraphNode | null
@@ -93,6 +115,16 @@ interface Props {
   // above vantage. Not parked on a node; held until the next navigation.
   overviewSignal?: number
   overviewPoints?: [number, number, number][] | null
+  // Course-scrub: when on, the scroll wheel slides the ship ALONG the plotted
+  // course (instead of dollying) — a manual, user-paced version of travel that
+  // stays on the rails. `scrubPath` is the ordered world positions of the
+  // plotted route (current node first). Shift+wheel still dollies. Inert unless
+  // a course is supplied; never engaged during travel or a tour.
+  scrubMode?: boolean
+  scrubPath?: [number, number, number][] | null
+  // Reports the route node the ship is currently nearest as it scrubs, so the
+  // HUD can show "approaching X" and Dock knows where to commit.
+  onScrubIndex?: (index: number) => void
   onUnlock: () => void
   onArrive: () => void
 }
@@ -102,7 +134,7 @@ interface Props {
 // leg starts with an auto-aim turn toward the next hop; dragging mid-flight
 // unlocks the camera (the view is then never reset at waypoints) until
 // "follow course" re-engages it.
-export function ShipCamera({ currentNode, targetNode, following, followSignal, recenterSignal = 0, recenterKeepZoom = false, frameSignal = 0, frameTarget = null, overviewSignal = 0, overviewPoints = null, onUnlock, onArrive }: Props) {
+export function ShipCamera({ currentNode, targetNode, following, followSignal, recenterSignal = 0, recenterKeepZoom = false, frameSignal = 0, frameTarget = null, overviewSignal = 0, overviewPoints = null, scrubMode = false, scrubPath = null, onScrubIndex, onUnlock, onArrive }: Props) {
   const camera = useThree((s) => s.camera) as THREE.PerspectiveCamera
   const gl = useThree((s) => s.gl)
   // Gaze: yaw/pitch *relative to the stance frame* (up = outward normal), so
@@ -151,6 +183,68 @@ export function ShipCamera({ currentNode, targetNode, following, followSignal, r
   // Mirror so the recenter effect reads the latest value without a reactive dep.
   const keepZoomRef = useRef(recenterKeepZoom)
   keepZoomRef.current = recenterKeepZoom
+
+  // --- Course-scrub state ---
+  // The polyline being scrubbed: world points, per-segment unit directions, and
+  // cumulative arc-length (cum[i] = distance from the start to point i; the last
+  // entry is the total length L). Rebuilt whenever the supplied path changes.
+  const poly = useMemo(() => {
+    const pts = (scrubPath ?? []).map((p) => new THREE.Vector3(p[0], p[1], p[2]))
+    const dirs: THREE.Vector3[] = []
+    const cum: number[] = [0]
+    for (let i = 0; i < pts.length - 1; i++) {
+      const d = pts[i + 1].clone().sub(pts[i])
+      const len = d.length()
+      dirs.push(len > 1e-6 ? d.multiplyScalar(1 / len) : new THREE.Vector3(0, 0, 1))
+      cum.push(cum[i] + len)
+    }
+    return { pts, dirs, cum, L: cum[cum.length - 1] ?? 0 }
+  }, [scrubPath])
+  // Arc-length position of the ship along the polyline (0 = start/current node).
+  const scrubS = useRef(0)
+  // The eased orbit stance while scrubbing — temporally smoothed toward the
+  // current segment's edge frame so corners round off instead of snapping.
+  const scrubStance = useRef(new THREE.Quaternion())
+  // Mirror scrubMode for the wheel handler (set up once, reads latest value).
+  const scrubModeRef = useRef(scrubMode)
+  scrubModeRef.current = scrubMode
+  const polyRef = useRef(poly)
+  polyRef.current = poly
+  const onScrubIndexRef = useRef(onScrubIndex)
+  onScrubIndexRef.current = onScrubIndex
+  // Last reported nearest-node index, so we only call back on a change.
+  const scrubIndexRef = useRef(-1)
+  // True for the first scrub frame after engaging, to seed scrubStance from the
+  // live stance (no snap on takeover). Reset whenever the mode toggles.
+  const scrubFresh = useRef(true)
+
+  // Engage/disengage scrub: reset to the start of the course and re-seed. On
+  // disengage (mode off), return to the ship — a clean parked stance + gaze over
+  // the current node, undoing the lane frame the scrub left in `stance`.
+  useEffect(() => {
+    scrubS.current = 0
+    scrubIndexRef.current = -1
+    scrubFresh.current = true
+    if (!scrubMode) {
+      stance.current.identity()
+      look.current.yaw = 0
+      look.current.pitch = 0
+      scrubStance.current.identity()
+    }
+  }, [scrubMode, scrubPath])
+
+  // Map an arc-length s to a pose on the polyline: the point, the segment index
+  // it falls on, and the nearest node index (for the HUD/Dock).
+  const poseAt = (s: number) => {
+    const p = polyRef.current
+    const sClamped = THREE.MathUtils.clamp(s, 0, p.L)
+    let i = 0
+    while (i < p.dirs.length - 1 && p.cum[i + 1] <= sClamped) i++
+    const segLen = p.cum[i + 1] - p.cum[i]
+    const t = segLen > 1e-6 ? (sClamped - p.cum[i]) / segLen : 0
+    nodePos.copy(p.pts[i]).lerp(p.pts[i + 1], t)
+    return { point: nodePos, dir: p.dirs[i], nearest: t < 0.5 ? i : i + 1 }
+  }
 
   useEffect(() => {
     // currentNode is now in sync — the just-arrived hold can release.
@@ -557,6 +651,17 @@ export function ShipCamera({ currentNode, targetNode, following, followSignal, r
     const onWheel = (e: WheelEvent) => {
       e.preventDefault()
       grabControls()
+      // Course-scrub: with the mode on and a course under us, the wheel slides
+      // the ship along the route instead of dollying — Shift forces the dolly so
+      // zoom is still reachable. Disabled mid-travel (the rails own the camera).
+      if (scrubModeRef.current && !e.shiftKey && polyRef.current.L > 0 && !travel.current) {
+        scrubS.current = THREE.MathUtils.clamp(
+          scrubS.current + e.deltaY * SCRUB_SENS,
+          0,
+          polyRef.current.L,
+        )
+        return
+      }
       // Scroll out (positive deltaY) dollies away to frame the whole graph;
       // scroll in pulls up close to inspect a node. Exponential = even feel.
       dolly(Math.exp(e.deltaY * 0.0015))
@@ -627,6 +732,26 @@ export function ShipCamera({ currentNode, targetNode, following, followSignal, r
           justArrived.current = true
           onArriveRef.current()
         }
+      }
+    } else if (scrubModeRef.current && polyRef.current.L > 0 && !justArrived.current) {
+      // Course-scrub: ride the polyline at the wheel-driven arc-length. Position
+      // is exact (point + hover·radius); the stance eases toward the segment's
+      // edge frame so corners round off instead of snapping. Free-look (the gaze
+      // yaw/pitch) and the dolly radius still apply on top, exactly as parked.
+      const pose = poseAt(scrubS.current)
+      if (scrubFresh.current) {
+        scrubStance.current.copy(stance.current)
+        scrubFresh.current = false
+      }
+      v1.copy(Y_AXIS).applyQuaternion(scrubStance.current) // carried up
+      const target = edgeStance(pose.dir, v1)
+      scrubStance.current.slerp(target, 1 - Math.exp(-6 * delta))
+      stance.current.copy(scrubStance.current)
+      v1.copy(Y_AXIS).applyQuaternion(stance.current).multiplyScalar(radius.current)
+      camera.position.copy(pose.point).add(v1)
+      if (pose.nearest !== scrubIndexRef.current) {
+        scrubIndexRef.current = pose.nearest
+        onScrubIndexRef.current?.(pose.nearest)
       }
     } else if (!justArrived.current) {
       // Parked: position = node + outward normal · radius (the stance's up axis),

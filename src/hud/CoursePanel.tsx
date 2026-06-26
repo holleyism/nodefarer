@@ -8,15 +8,25 @@ interface Props {
   graph: Graph
   onTravel: () => void
   onClear: () => void
+  // Course-scrub: ride the route by scroll wheel instead of flying it in one
+  // shot. scrubIndex = the route node the ship is currently nearest; onDock
+  // commits the preview at that node.
+  scrubMode: boolean
+  scrubIndex: number
+  onToggleScrub: () => void
+  onDock: (index: number) => void
 }
 
 // The scanner's "course plotted" view — it replaces the search box once a course
-// is plotted. Describes the route (its stops) and offers Travel (fly it) or
-// Clear (back to search). The route itself is highlighted out in the scene.
-export function CoursePanel({ route, graph, onTravel, onClear }: Props) {
+// is plotted. Describes the route (its stops) and offers Travel (fly it), Scrub
+// (ride it manually by wheel), or Clear (back to search). The route itself is
+// highlighted out in the scene.
+export function CoursePanel({ route, graph, onTravel, onClear, scrubMode, scrubIndex, onToggleScrub, onDock }: Props) {
   const name = (id: string) => graph.nodeById.get(id)?.name ?? id
   const hops = Math.max(0, route.length - 1)
   const destination = route[route.length - 1]
+  // While scrubbing, the stop the ship is nearest — Dock commits here.
+  const nearIdx = Math.max(0, Math.min(scrubIndex, route.length - 1))
 
   return (
     <>
@@ -32,19 +42,21 @@ export function CoursePanel({ route, graph, onTravel, onClear }: Props) {
         {route.map((id, i) => {
           const isDest = i === route.length - 1
           const isCurrent = i === 0
+          // While scrubbing, a ► rides the list to the stop the ship is nearest.
+          const isShip = scrubMode && i === nearIdx
           return (
             <Box key={id} sx={{ display: 'flex', gap: 1, alignItems: 'flex-start' }}>
               <Box
                 sx={{
                   font: MONO_SMALL,
-                  color: isDest ? '#ffce7a' : isCurrent ? HUD_TEXT : 'rgba(255, 206, 122, 0.55)',
+                  color: isShip ? '#7fd4ff' : isDest ? '#ffce7a' : isCurrent ? HUD_TEXT : 'rgba(255, 206, 122, 0.55)',
                   width: 14,
                   flexShrink: 0,
                   lineHeight: '1.5',
                   textAlign: 'center',
                 }}
               >
-                {isCurrent ? '◉' : isDest ? '◆' : '·'}
+                {isShip ? '►' : isCurrent ? '◉' : isDest ? '◆' : '·'}
               </Box>
               <Typography
                 sx={{
@@ -62,15 +74,32 @@ export function CoursePanel({ route, graph, onTravel, onClear }: Props) {
         })}
       </Stack>
 
-      <Stack direction="row" spacing={1}>
-        <CourseButton primary onClick={onTravel}>
-          ▸ Travel
-        </CourseButton>
-        <CourseButton onClick={onClear}>✕ Clear</CourseButton>
-      </Stack>
-      <Typography sx={{ font: MONO_SMALL, color: 'text.secondary', mt: 1 }}>
-        Destination: {name(destination)}
-      </Typography>
+      {scrubMode ? (
+        <>
+          <Stack direction="row" spacing={1}>
+            <CourseButton primary onClick={() => onDock(nearIdx)}>
+              ⚓ Dock{nearIdx > 0 ? ` — ${name(route[nearIdx])}` : ''}
+            </CourseButton>
+            <CourseButton onClick={onToggleScrub}>✕ Stop</CourseButton>
+          </Stack>
+          <Typography sx={{ font: MONO_SMALL, color: 'text.secondary', mt: 1 }}>
+            Scroll to travel the course · Shift+scroll to zoom · Enter to dock.
+          </Typography>
+        </>
+      ) : (
+        <>
+          <Stack direction="row" spacing={1}>
+            <CourseButton primary onClick={onTravel}>
+              ▸ Travel
+            </CourseButton>
+            <CourseButton onClick={onToggleScrub}>↻ Scrub</CourseButton>
+            <CourseButton onClick={onClear}>✕ Clear</CourseButton>
+          </Stack>
+          <Typography sx={{ font: MONO_SMALL, color: 'text.secondary', mt: 1 }}>
+            Destination: {name(destination)}
+          </Typography>
+        </>
+      )}
     </>
   )
 }

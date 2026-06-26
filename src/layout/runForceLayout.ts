@@ -28,6 +28,20 @@ interface LayoutOpts {
   // Nebula grouping force (Plan H). Pinned nodes ignore it (they're fixed), so
   // an incremental expand still only settles new nodes — toward their centroids.
   cluster?: ClusterSpec
+  // Base proximity: the rest length of every edge. Repulsion + repulsion-range
+  // scale with it, so one value dials the whole universe denser or looser.
+  // Defaults to the module-level `defaultSpacing` (live-settable from the HUD).
+  spacing?: number
+}
+
+// The base node spacing — the rest length of every edge; charge (repulsion) and
+// its range scale off it, so this one number sets how packed-or-spread the
+// universe is. The Ship console drives it live via `setLayoutSpacing`; new
+// relayouts pick it up without threading the value through every call site.
+export const DEFAULT_LAYOUT_SPACING = 48
+let defaultSpacing = DEFAULT_LAYOUT_SPACING
+export function setLayoutSpacing(v: number) {
+  defaultSpacing = v
 }
 
 const placed = (n: GraphNode) => n.x != null && n.y != null && n.z != null
@@ -114,15 +128,19 @@ export function buildSimulation(graph: Graph, opts: LayoutOpts = {}) {
   }
 
   const links = linkEdges.map((e) => ({ source: e.source, target: e.target }))
+  // One knob, three forces: longer edges, proportionally stronger repulsion, and
+  // a proportionally wider repulsion range — so raising spacing spreads the whole
+  // universe evenly instead of just stretching edges over a fixed push-apart.
+  const spacing = opts.spacing ?? defaultSpacing
   const simulation = forceSimulation(graph.nodes, 3)
     .force(
       'link',
       forceLink(links)
         .id((d: { id: string }) => d.id)
-        .distance(34)
+        .distance(spacing)
         .strength(0.6),
     )
-    .force('charge', forceManyBody().strength(-80).distanceMax(400))
+    .force('charge', forceManyBody().strength(-spacing * 2.35).distanceMax(spacing * 11.8))
     .force('center', forceCenter(0, 0, 0))
 
   // Nebula clustering: pull each grouped node toward its centroid (per-node

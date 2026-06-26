@@ -17,7 +17,7 @@ import type { Bundle } from './data/bundle'
 import { resolveTourAnchors } from './data/tour'
 import type { Tour, TourOp } from './data/tour'
 import { shortestPath } from './data/shortestPath'
-import { runForceLayout, buildSimulation, unpinAll, type ClusterSpec } from './layout/runForceLayout'
+import { runForceLayout, buildSimulation, unpinAll, setLayoutSpacing as setDefaultLayoutSpacing, DEFAULT_LAYOUT_SPACING, type ClusterSpec } from './layout/runForceLayout'
 import { buildClusterSpec, assignGroups, groupColor, DEFAULT_SPACING } from './layout/grouping'
 import type { NebulaBody } from './scene/Nebulae'
 import type { NebulaStub } from './scene/NebulaStubEdges'
@@ -133,6 +133,10 @@ export default function App() {
   const [nebulaOn, setNebulaOn] = useState(false)
   const [groupStrength, setGroupStrength] = useState(0.6)
   const [nebulaSpacing, setNebulaSpacing] = useState(DEFAULT_SPACING)
+  // Base node proximity (edge rest length) — how packed-or-spread the universe
+  // is, independent of nebula grouping. Driven live from the Ship console; the
+  // value is mirrored into the layout module so every relayout picks it up.
+  const [layoutSpacing, setLayoutSpacing] = useState(DEFAULT_LAYOUT_SPACING)
   // How much of a group's members the cloud body must enclose: the percentile of
   // member distances used for its radius. 0.85 ignores cross-field strays so a
   // single outlier doesn't balloon the cloud; 1 makes the cloud encompass EVERY
@@ -206,6 +210,13 @@ export default function App() {
   // distinct "route" emphasis (see scene/RouteHighlight); the scanner shifts to
   // a describe/Travel view while it's set. Travelling or clearing empties it.
   const [plottedRoute, setPlottedRoute] = useState<string[]>([])
+  // Course-scrub: when on, the scroll wheel travels the plotted course manually
+  // (the ship glides along the route) instead of dollying — a user-paced, on-
+  // rails alternative to one-shot Travel. Only meaningful with a course plotted;
+  // it's a camera preview (nothing commits) until you Dock. `scrubIndex` tracks
+  // the route node the ship is nearest, reported live from the camera.
+  const [scrubMode, setScrubMode] = useState(false)
+  const [scrubIndex, setScrubIndex] = useState(0)
   // The accumulated JOURNEY corridor: every node + edge actually travelled so
   // far. It's kept visible (never folded away), highlighted as a trail, and
   // exempt from the budget — so the narrative path builds up instead of the
@@ -568,6 +579,73 @@ export default function App() {
     setPlottedRoute([])
     setFrameTarget(null)
   }
+  // World positions of the plotted route's nodes, in order — the polyline the
+  // ship scrubs along. Null unless a course is plotted and fully placed.
+  const scrubPath = useMemo<[number, number, number][] | null>(() => {
+    if (!view || plottedRoute.length < 2) return null
+    const pts: [number, number, number][] = []
+    for (const id of plottedRoute) {
+      const n = view.nodeById.get(id)
+      if (!n || n.x == null || n.y == null || n.z == null) return null
+      pts.push([n.x, n.y, n.z])
+    }
+    return pts
+  }, [view, plottedRoute])
+  // Toggle course-scrub. Only valid with a plotted course, and never while
+  // travelling or a tour drives the camera (the rails own it then).
+  const handleToggleScrub = () => {
+    if (plottedRoute.length < 2 || traveling || tourActiveRef.current) return
+    setScrubMode((on) => !on)
+  }
+  // Auto-disengage scrub when there's no longer a course to ride (cleared, or
+  // travel/arrival emptied it).
+  useEffect(() => {
+    if (scrubMode && (plottedRoute.length < 2 || traveling)) setScrubMode(false)
+  }, [scrubMode, plottedRoute.length, traveling])
+  // Dock: commit the scrub preview at the route node `index`. Banks the traversed
+  // leg as journey corridor, makes that node current, and keeps the REST of the
+  // course scrubbable from there (or ends the scrub if it was the destination).
+  // Camera-only until this point — nothing committed while merely gliding.
+  const handleDockCourse = (index: number) => {
+    if (!view || !scrubMode || plottedRoute.length < 2) return
+    const i = Math.max(0, Math.min(index, plottedRoute.length - 1))
+    if (i === 0) return // still parked at the start — nothing to commit
+    const docked = plottedRoute[i]
+    const prefix = plottedRoute.slice(0, i + 1)
+    setShownEdgeIds((prev) => new Set([...prev, ...pathEdgeIds(view, prefix)]))
+    extendCorridor(prefix, view)
+    setCurrentId(docked)
+    setTrail((t) => {
+      const idx = t.indexOf(docked)
+      return idx >= 0 ? t.slice(0, idx + 1) : [...t, docked]
+    })
+    setFollowing(true)
+    const remaining = plottedRoute.slice(i)
+    if (remaining.length < 2) {
+      setPlottedRoute([])
+      setScrubMode(false)
+      setFrameTarget(null)
+    } else {
+      setPlottedRoute(remaining)
+    }
+  }
+  // Stable bridge so the Dock hotkey effect always docks at the LATEST nearest
+  // node without re-subscribing on every scrub tick.
+  const dockNowRef = useRef<() => void>(() => {})
+  dockNowRef.current = () => handleDockCourse(scrubIndex)
+  // "Enter" docks while scrubbing (ignored while typing in a console field).
+  useEffect(() => {
+    if (!scrubMode) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.code !== 'Enter' || e.metaKey || e.ctrlKey || e.altKey) return
+      const t = e.target as HTMLElement | null
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA')) return
+      e.preventDefault()
+      dockNowRef.current()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [scrubMode])
   const handleSetEdgeVisible = (id: string, visible: boolean) => {
     setShownEdgeIds((s) => {
       const n = new Set(s)
@@ -596,6 +674,31 @@ export default function App() {
         const idx = t.indexOf(arrived)
         return idx >= 0 ? t.slice(0, idx + 1) : [...t, arrived]
       })
+      // Face where the stars are: on a manual arrival, turn the gaze toward the
+      // centroid of the arrived node's (in-view) neighbours, so you land looking
+      // at the densest cluster rather than out over the empty edge of the graph
+      // — no more spinning around to find the neighbours hiding "behind" the
+      // node. Reuses the parked gaze-turn (frameTarget, zoom:false). Skipped
+      // during tours (their own steps drive the gaze) and when the node has no
+      // placed neighbours (nothing to aim at — keep the default outward look).
+      if (!tourActiveRef.current && view) {
+        const arrivedNode = view.nodeById.get(arrived)
+        let cx = 0, cy = 0, cz = 0, n = 0
+        for (const id of view.neighbors.get(arrived) ?? []) {
+          const nb = view.nodeById.get(id)
+          if (nb?.x != null && nb.y != null && nb.z != null) {
+            cx += nb.x; cy += nb.y; cz += nb.z; n++
+          }
+        }
+        if (arrivedNode?.x != null && n > 0) {
+          setFrameTarget({
+            points: [[arrivedNode.x!, arrivedNode.y!, arrivedNode.z!]],
+            destination: [cx / n, cy / n, cz / n],
+            zoom: false,
+          })
+          setFrameSignal((f) => f + 1)
+        }
+      }
       // Defer the tour-travel settle until we've actually parked (route empties),
       // so it doesn't race the in-flight guards.
       revealPendingRef.current = arrived
@@ -874,6 +977,14 @@ export default function App() {
   const handleNebulaSpacing = (spacing: number) => {
     setNebulaSpacing(spacing)
     if (nebulaOn) restageNebula(true, groupStrength, spacing)
+  }
+  // Base spacing slider: mirror the value into the layout module (so the next
+  // relayout uses it) and re-spatialize the current view — through the same
+  // nebula path, so it works whether grouping is on or off.
+  const handleLayoutSpacing = (spacing: number) => {
+    setLayoutSpacing(spacing)
+    setDefaultLayoutSpacing(spacing)
+    restageNebula(nebulaOn, groupStrength, nebulaSpacing)
   }
   // Toggle field isolation (drop cross-field edges from the sim) and re-stage
   // with the new value so the manual relayout matches what a tour produces.
@@ -1594,6 +1705,9 @@ export default function App() {
           frameTarget={frameTarget}
           overviewSignal={overviewSignal}
           overviewPoints={overviewPoints}
+          scrubMode={scrubMode}
+          scrubPath={scrubPath}
+          onScrubIndex={setScrubIndex}
           onUnlock={() => setFollowing(false)}
           onTaggedChange={setTaggedIds}
           onSelect={handleSelect}
@@ -1646,6 +1760,10 @@ export default function App() {
         onPlotCourse={handlePlotCourse}
         onTravelCourse={handleTravelCourse}
         onClearCourse={handleClearCourse}
+        scrubMode={scrubMode}
+        scrubIndex={scrubIndex}
+        onToggleScrub={handleToggleScrub}
+        onDockCourse={handleDockCourse}
         tours={tours}
         onStartTour={handleStartTour}
         sourceChoice={sourceChoice}
@@ -1657,6 +1775,8 @@ export default function App() {
         nebulaLabel={nebulaLabel}
         groupStrength={groupStrength}
         nebulaSpacing={nebulaSpacing}
+        layoutSpacing={layoutSpacing}
+        onLayoutSpacing={handleLayoutSpacing}
         watchReform={watchReform}
         nebulaIsolate={nebulaIsolate}
         onToggleNebula={handleToggleNebula}

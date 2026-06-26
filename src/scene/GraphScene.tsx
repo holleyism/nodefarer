@@ -54,6 +54,9 @@ interface Props {
   } | null
   overviewSignal: number
   overviewPoints: [number, number, number][] | null
+  scrubMode: boolean
+  scrubPath: [number, number, number][] | null
+  onScrubIndex: (index: number) => void
   onUnlock: () => void
   onTaggedChange: (ids: string[]) => void
   onSelect: (id: string) => void
@@ -89,6 +92,9 @@ export function GraphScene({
   frameTarget,
   overviewSignal,
   overviewPoints,
+  scrubMode,
+  scrubPath,
+  onScrubIndex,
   onUnlock,
   onTaggedChange,
   onSelect,
@@ -158,6 +164,9 @@ export function GraphScene({
         frameTarget={frameTarget}
         overviewSignal={overviewSignal}
         overviewPoints={overviewPoints}
+        scrubMode={scrubMode}
+        scrubPath={scrubPath}
+        onScrubIndex={onScrubIndex}
         onUnlock={onUnlock}
         onArrive={onArrive}
       />
