@@ -224,6 +224,10 @@ export default function App() {
     // true → snap the gaze instantly (no animated turn), e.g. behind the doors.
     instant?: boolean
   } | null>(null)
+  // Overview pull-back (tour recap): pull the camera back to frame a set of world
+  // points (the whole journey corridor) at once.
+  const [overviewSignal, setOverviewSignal] = useState(0)
+  const [overviewPoints, setOverviewPoints] = useState<[number, number, number][] | null>(null)
   // Blast doors: shut the window while the universe is being (re)laid out.
   const [doorsClosed, setDoorsClosed] = useState(false)
   // Bottom-left status/error readout.
@@ -1149,6 +1153,20 @@ export default function App() {
         }
         return nextFrame()
       }
+      case 'overview': {
+        // Pull back to frame the whole travelled corridor at once.
+        if (view) {
+          const pts = [...corridorNodes]
+            .map((id) => view.nodeById.get(id))
+            .filter((n): n is NonNullable<typeof n> => n != null && n.x != null)
+            .map((n) => [n.x!, n.y!, n.z!] as [number, number, number])
+          if (pts.length) {
+            setOverviewPoints(pts)
+            setOverviewSignal((s) => s + 1)
+          }
+        }
+        return nextFrame()
+      }
       default:
         return Promise.resolve()
     }
@@ -1574,6 +1592,8 @@ export default function App() {
           recenterKeepZoom={recenterKeepZoom}
           frameSignal={frameSignal}
           frameTarget={frameTarget}
+          overviewSignal={overviewSignal}
+          overviewPoints={overviewPoints}
           onUnlock={() => setFollowing(false)}
           onTaggedChange={setTaggedIds}
           onSelect={handleSelect}
