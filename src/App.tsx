@@ -210,6 +210,13 @@ export default function App() {
   // distinct "route" emphasis (see scene/RouteHighlight); the scanner shifts to
   // a describe/Travel view while it's set. Travelling or clearing empties it.
   const [plottedRoute, setPlottedRoute] = useState<string[]>([])
+  // Course-scrub: when on, the scroll wheel travels the plotted course manually
+  // (the ship glides along the route) instead of dollying — a user-paced, on-
+  // rails alternative to one-shot Travel. Only meaningful with a course plotted;
+  // it's a camera preview (nothing commits) until you Dock. `scrubIndex` tracks
+  // the route node the ship is nearest, reported live from the camera.
+  const [scrubMode, setScrubMode] = useState(false)
+  const [scrubIndex, setScrubIndex] = useState(0)
   // The accumulated JOURNEY corridor: every node + edge actually travelled so
   // far. It's kept visible (never folded away), highlighted as a trail, and
   // exempt from the budget — so the narrative path builds up instead of the
@@ -572,6 +579,73 @@ export default function App() {
     setPlottedRoute([])
     setFrameTarget(null)
   }
+  // World positions of the plotted route's nodes, in order — the polyline the
+  // ship scrubs along. Null unless a course is plotted and fully placed.
+  const scrubPath = useMemo<[number, number, number][] | null>(() => {
+    if (!view || plottedRoute.length < 2) return null
+    const pts: [number, number, number][] = []
+    for (const id of plottedRoute) {
+      const n = view.nodeById.get(id)
+      if (!n || n.x == null || n.y == null || n.z == null) return null
+      pts.push([n.x, n.y, n.z])
+    }
+    return pts
+  }, [view, plottedRoute])
+  // Toggle course-scrub. Only valid with a plotted course, and never while
+  // travelling or a tour drives the camera (the rails own it then).
+  const handleToggleScrub = () => {
+    if (plottedRoute.length < 2 || traveling || tourActiveRef.current) return
+    setScrubMode((on) => !on)
+  }
+  // Auto-disengage scrub when there's no longer a course to ride (cleared, or
+  // travel/arrival emptied it).
+  useEffect(() => {
+    if (scrubMode && (plottedRoute.length < 2 || traveling)) setScrubMode(false)
+  }, [scrubMode, plottedRoute.length, traveling])
+  // Dock: commit the scrub preview at the route node `index`. Banks the traversed
+  // leg as journey corridor, makes that node current, and keeps the REST of the
+  // course scrubbable from there (or ends the scrub if it was the destination).
+  // Camera-only until this point — nothing committed while merely gliding.
+  const handleDockCourse = (index: number) => {
+    if (!view || !scrubMode || plottedRoute.length < 2) return
+    const i = Math.max(0, Math.min(index, plottedRoute.length - 1))
+    if (i === 0) return // still parked at the start — nothing to commit
+    const docked = plottedRoute[i]
+    const prefix = plottedRoute.slice(0, i + 1)
+    setShownEdgeIds((prev) => new Set([...prev, ...pathEdgeIds(view, prefix)]))
+    extendCorridor(prefix, view)
+    setCurrentId(docked)
+    setTrail((t) => {
+      const idx = t.indexOf(docked)
+      return idx >= 0 ? t.slice(0, idx + 1) : [...t, docked]
+    })
+    setFollowing(true)
+    const remaining = plottedRoute.slice(i)
+    if (remaining.length < 2) {
+      setPlottedRoute([])
+      setScrubMode(false)
+      setFrameTarget(null)
+    } else {
+      setPlottedRoute(remaining)
+    }
+  }
+  // Stable bridge so the Dock hotkey effect always docks at the LATEST nearest
+  // node without re-subscribing on every scrub tick.
+  const dockNowRef = useRef<() => void>(() => {})
+  dockNowRef.current = () => handleDockCourse(scrubIndex)
+  // "Enter" docks while scrubbing (ignored while typing in a console field).
+  useEffect(() => {
+    if (!scrubMode) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.code !== 'Enter' || e.metaKey || e.ctrlKey || e.altKey) return
+      const t = e.target as HTMLElement | null
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA')) return
+      e.preventDefault()
+      dockNowRef.current()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [scrubMode])
   const handleSetEdgeVisible = (id: string, visible: boolean) => {
     setShownEdgeIds((s) => {
       const n = new Set(s)
@@ -1631,6 +1705,9 @@ export default function App() {
           frameTarget={frameTarget}
           overviewSignal={overviewSignal}
           overviewPoints={overviewPoints}
+          scrubMode={scrubMode}
+          scrubPath={scrubPath}
+          onScrubIndex={setScrubIndex}
           onUnlock={() => setFollowing(false)}
           onTaggedChange={setTaggedIds}
           onSelect={handleSelect}
@@ -1683,6 +1760,10 @@ export default function App() {
         onPlotCourse={handlePlotCourse}
         onTravelCourse={handleTravelCourse}
         onClearCourse={handleClearCourse}
+        scrubMode={scrubMode}
+        scrubIndex={scrubIndex}
+        onToggleScrub={handleToggleScrub}
+        onDockCourse={handleDockCourse}
         tours={tours}
         onStartTour={handleStartTour}
         sourceChoice={sourceChoice}
