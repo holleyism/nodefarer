@@ -34,8 +34,6 @@ interface Props {
   onToggleAutoCollapse: () => void
   doorsClosed: boolean
   onToggleDoors: () => void
-  freeFlight: boolean
-  onToggleFreeFlight: () => void
   sourceChoice: SourceChoice
   demos: DemoEntry[]
   onSwitchUniverse: (choice: SourceChoice) => void
@@ -76,8 +74,6 @@ export function OptionsMenu({
   onToggleAutoCollapse,
   doorsClosed,
   onToggleDoors,
-  freeFlight,
-  onToggleFreeFlight,
   sourceChoice,
   demos,
   onSwitchUniverse,
@@ -139,14 +135,6 @@ export function OptionsMenu({
     <>
       <Typography sx={{ font: MONO, letterSpacing: 3, color: '#aadfff', mb: 1.5 }}>
         SHIP CONSOLE
-      </Typography>
-
-      <Box component="button" onClick={onToggleFreeFlight} sx={{ ...btnSx(freeFlight), width: '100%', mb: 0.5 }}>
-        {freeFlight ? '◉' : '○'} ✈ free flight (F)
-      </Box>
-      <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mb: 1.5 }}>
-        Fly free through the space between nodes — WASD / arrows to move, drag to
-        look, space/C for up/down, shift to boost. Toggle off to return to the ship.
       </Typography>
 
       <Typography sx={{ font: MONO, letterSpacing: 1.5, color: 'text.secondary' }}>

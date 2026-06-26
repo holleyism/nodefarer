@@ -89,11 +89,6 @@ interface Props {
   } | null
   onUnlock: () => void
   onArrive: () => void
-  // When false, the ship controller stands down: it neither reads input nor
-  // writes the camera, so the free-flight controller can own it without a fight.
-  // Re-enabling re-anchors the camera over the current node on the next frame
-  // (the parked branch), which is the "return to the ship" snap-back.
-  enabled?: boolean
 }
 
 // The "ship": a camera parked at the current node. Orientation always lives
@@ -101,7 +96,7 @@ interface Props {
 // leg starts with an auto-aim turn toward the next hop; dragging mid-flight
 // unlocks the camera (the view is then never reset at waypoints) until
 // "follow course" re-engages it.
-export function ShipCamera({ currentNode, targetNode, following, followSignal, recenterSignal = 0, recenterKeepZoom = false, frameSignal = 0, frameTarget = null, onUnlock, onArrive, enabled = true }: Props) {
+export function ShipCamera({ currentNode, targetNode, following, followSignal, recenterSignal = 0, recenterKeepZoom = false, frameSignal = 0, frameTarget = null, onUnlock, onArrive }: Props) {
   const camera = useThree((s) => s.camera) as THREE.PerspectiveCamera
   const gl = useThree((s) => s.gl)
   // Gaze: yaw/pitch *relative to the stance frame* (up = outward normal), so
@@ -143,10 +138,6 @@ export function ShipCamera({ currentNode, targetNode, following, followSignal, r
   onUnlockRef.current = onUnlock
   const followingRef = useRef(following)
   followingRef.current = following
-  // Read in the input handlers + the frame loop so the ship yields the camera to
-  // free flight without unmounting (its stance/zoom refs survive the toggle).
-  const enabledRef = useRef(enabled)
-  enabledRef.current = enabled
   // Mirror so the recenter effect reads the latest value without a reactive dep.
   const keepZoomRef = useRef(recenterKeepZoom)
   keepZoomRef.current = recenterKeepZoom
@@ -415,7 +406,6 @@ export function ShipCamera({ currentNode, targetNode, following, followSignal, r
     }
 
     const onDown = (e: PointerEvent) => {
-      if (!enabledRef.current) return
       if (e.pointerType === 'mouse') {
         // Left = look, right or Shift+left = orbit; ignore middle/back/forward.
         if (e.button === 2 || (e.button === 0 && e.shiftKey)) orbitMode = true
@@ -431,7 +421,6 @@ export function ShipCamera({ currentNode, targetNode, following, followSignal, r
       }
     }
     const onMove = (e: PointerEvent) => {
-      if (!enabledRef.current) return
       const prev = pointers.get(e.pointerId)
       if (!prev) return
       const dx = e.clientX - prev.x
@@ -482,7 +471,6 @@ export function ShipCamera({ currentNode, targetNode, following, followSignal, r
       if (pointers.size === 0) orbitMode = false
     }
     const onWheel = (e: WheelEvent) => {
-      if (!enabledRef.current) return
       e.preventDefault()
       // Scroll out (positive deltaY) dollies away to frame the whole graph;
       // scroll in pulls up close to inspect a node. Exponential = even feel.
@@ -508,8 +496,6 @@ export function ShipCamera({ currentNode, targetNode, following, followSignal, r
   }, [gl, camera])
 
   useFrame((_, delta) => {
-    // Stood down for free flight: don't touch the camera or the ship pose bus.
-    if (!enabledRef.current) return
     // Animated dolly (auto-frame): ease the parked distance toward its target.
     const ra = radiusAnim.current
     if (ra) {

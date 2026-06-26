@@ -54,8 +54,6 @@ interface Props {
   onFollow: () => void
   doorsClosed: boolean
   onToggleDoors: () => void
-  freeFlight: boolean
-  onToggleFreeFlight: () => void
   onDoorsClosed: () => void
   pinnedEdgeIds: string[]
   visibleEdgeIds: Set<string>
@@ -143,8 +141,6 @@ export function Hud({
   onFollow,
   doorsClosed,
   onToggleDoors,
-  freeFlight,
-  onToggleFreeFlight,
   onDoorsClosed,
   pinnedEdgeIds,
   visibleEdgeIds,
@@ -410,8 +406,6 @@ export function Hud({
           onToggleAutoCollapse={onToggleAutoCollapse}
           doorsClosed={doorsClosed}
           onToggleDoors={onToggleDoors}
-          freeFlight={freeFlight}
-          onToggleFreeFlight={onToggleFreeFlight}
           sourceChoice={sourceChoice}
           demos={demos}
           onSwitchUniverse={onSwitchUniverse}

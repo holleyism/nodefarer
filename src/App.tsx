@@ -199,17 +199,6 @@ export default function App() {
   // mid-flight unlocks it; "follow course" (or journey's end) re-locks.
   const [following, setFollowing] = useState(true)
   const [followSignal, setFollowSignal] = useState(0)
-  // Free-flight: a no-clip flying camera (WASD/arrows + drag-look) that roams
-  // the space between nodes. While on, the ship controller stands down; turning
-  // it off snaps back to the ship parked over the current node. `freeFlightEnter`
-  // is bumped on each entry so the flight gaze re-seeds from the live camera.
-  const [freeFlight, setFreeFlight] = useState(false)
-  const [freeFlightEnter, setFreeFlightEnter] = useState(0)
-  const toggleFreeFlight = () =>
-    setFreeFlight((on) => {
-      if (!on) setFreeFlightEnter((s) => s + 1)
-      return !on
-    })
   // Bumped to re-frame the ship (undo orbit / look-around) on a scripted step.
   const [recenterSignal, setRecenterSignal] = useState(0)
   // Whether the paired recenter keeps the current dolly zoom (manual travel) or
@@ -356,21 +345,6 @@ export default function App() {
     }
   }, [])
 
-  // "F" toggles free flight (ignored while typing in a console field, and while
-  // a tour is driving the camera).
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.code !== 'KeyF' || e.metaKey || e.ctrlKey || e.altKey) return
-      const t = e.target as HTMLElement | null
-      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA')) return
-      if (tourActiveRef.current) return
-      e.preventDefault()
-      toggleFreeFlight()
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [])
-
   // Load the shipped-demo catalog once (drives the universe picker's demo list).
   useEffect(() => {
     let cancelled = false
@@ -413,9 +387,7 @@ export default function App() {
   // itself via travelTo); this keeps the on-screen journey in lockstep with the
   // narration the user is reading.
   const handleTravel = (id: string) => {
-    // No node-to-node travel while free-flying — you're off the rails by design;
-    // exit free flight (F) to resume the parked, path-following navigation.
-    if (tourActiveRef.current || freeFlight) return
+    if (tourActiveRef.current) return
     // Normalize the orbit + gaze before a manual traversal (so the first hop
     // doesn't fly off in the orbited direction), but keep the user's dolly zoom.
     reframeForMove(true)
@@ -1540,8 +1512,6 @@ export default function App() {
           onSelect={handleSelect}
           onTravel={handleTravel}
           onArrive={handleArrive}
-          freeFlight={freeFlight}
-          freeFlightEnter={freeFlightEnter}
         />
       </Canvas>
       <Hud
@@ -1572,8 +1542,6 @@ export default function App() {
         onFollow={handleFollow}
         doorsClosed={doorsClosed}
         onToggleDoors={() => setDoorsClosed(!doorsClosed)}
-        freeFlight={freeFlight}
-        onToggleFreeFlight={toggleFreeFlight}
         onDoorsClosed={handleDoorsClosed}
         pinnedEdgeIds={pinnedEdgeIds}
         visibleEdgeIds={visibleEdgeIds}
@@ -1632,54 +1600,6 @@ export default function App() {
         onQuit={tour.quit}
       />
       <MessageToast message={message} onDismiss={() => setMessage(null)} />
-      {freeFlight && (
-        <Box
-          sx={{
-            position: 'fixed',
-            bottom: 18,
-            left: '50%',
-            transform: 'translateX(-50%)',
-            display: 'flex',
-            alignItems: 'center',
-            gap: 1.5,
-            px: 2,
-            py: 1,
-            borderRadius: '10px',
-            background: 'rgba(2, 8, 20, 0.72)',
-            border: '1px solid rgba(127, 212, 255, 0.45)',
-            backdropFilter: 'blur(4px)',
-            font: '11px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace',
-            letterSpacing: 1,
-            color: '#aadfff',
-            pointerEvents: 'auto',
-            zIndex: 20,
-          }}
-        >
-          <Box component="span" sx={{ color: '#7fd4ff', fontWeight: 700, letterSpacing: 2 }}>
-            ✈ FREE FLIGHT
-          </Box>
-          <Box component="span" sx={{ color: 'rgba(170,223,255,0.75)' }}>
-            WASD / arrows · drag look · space/C up·down · shift boost · wheel speed
-          </Box>
-          <Box
-            component="button"
-            onClick={toggleFreeFlight}
-            sx={{
-              font: 'inherit',
-              letterSpacing: 1.5,
-              textTransform: 'uppercase',
-              color: '#02030a',
-              background: '#7fd4ff',
-              border: 'none',
-              borderRadius: '6px',
-              padding: '3px 9px',
-              cursor: 'pointer',
-            }}
-          >
-            exit (F)
-          </Box>
-        </Box>
-      )}
     </Box>
   )
 }

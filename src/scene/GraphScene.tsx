@@ -10,7 +10,6 @@ import { EdgeHighlights } from './EdgeHighlights'
 import { Reticles } from './Reticles'
 import { EMPHASIS_COLOR, type Emphasis } from './RouteHighlight'
 import { ShipCamera } from './ShipCamera'
-import { FreeFlightCamera } from './FreeFlightCamera'
 import { TagSelector } from './TagSelector'
 
 interface Props {
@@ -58,10 +57,6 @@ interface Props {
   onSelect: (id: string) => void
   onTravel: (id: string) => void
   onArrive: () => void
-  // Free-flight: when on, FreeFlightCamera owns the camera and the ship stands
-  // down. enterSignal re-seeds the flight gaze each time it's toggled on.
-  freeFlight: boolean
-  freeFlightEnter: number
 }
 
 export function GraphScene({
@@ -95,8 +90,6 @@ export function GraphScene({
   onSelect,
   onTravel,
   onArrive,
-  freeFlight,
-  freeFlightEnter,
 }: Props) {
   // Emphases are drawn as an OVERLAY on the existing geometry: Edges/Nodes
   // recolour these members in place, so a highlight can't drift to a different
@@ -161,9 +154,7 @@ export function GraphScene({
         frameTarget={frameTarget}
         onUnlock={onUnlock}
         onArrive={onArrive}
-        enabled={!freeFlight}
       />
-      <FreeFlightCamera active={freeFlight} enterSignal={freeFlightEnter} />
     </>
   )
 }
