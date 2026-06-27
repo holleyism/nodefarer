@@ -126,6 +126,9 @@ interface Props {
   // a course is supplied; never engaged during travel or a tour.
   scrubMode?: boolean
   scrubPath?: [number, number, number][] | null
+  // Arc-length the ship advances per unit of wheel delta while scrubbing — the
+  // "how far each scroll jumps" knob (HUD slider). Higher = faster hops.
+  scrubStep?: number
   // Reports the route node the ship is currently nearest as it scrubs, so the
   // HUD can show "approaching X" and Dock knows where to commit.
   onScrubIndex?: (index: number) => void
@@ -138,7 +141,7 @@ interface Props {
 // leg starts with an auto-aim turn toward the next hop; dragging mid-flight
 // unlocks the camera (the view is then never reset at waypoints) until
 // "follow course" re-engages it.
-export function ShipCamera({ currentNode, targetNode, following, followSignal, recenterSignal = 0, recenterKeepZoom = false, frameSignal = 0, frameTarget = null, overviewSignal = 0, overviewPoints = null, scrubMode = false, scrubPath = null, onScrubIndex, onUnlock, onArrive }: Props) {
+export function ShipCamera({ currentNode, targetNode, following, followSignal, recenterSignal = 0, recenterKeepZoom = false, frameSignal = 0, frameTarget = null, overviewSignal = 0, overviewPoints = null, scrubMode = false, scrubPath = null, scrubStep = SCRUB_SENS, onScrubIndex, onUnlock, onArrive }: Props) {
   const camera = useThree((s) => s.camera) as THREE.PerspectiveCamera
   const gl = useThree((s) => s.gl)
   // Gaze: yaw/pitch *relative to the stance frame* (up = outward normal), so
@@ -213,6 +216,8 @@ export function ShipCamera({ currentNode, targetNode, following, followSignal, r
   // Mirror scrubMode for the wheel handler (set up once, reads latest value).
   const scrubModeRef = useRef(scrubMode)
   scrubModeRef.current = scrubMode
+  const scrubStepRef = useRef(scrubStep)
+  scrubStepRef.current = scrubStep
   const polyRef = useRef(poly)
   polyRef.current = poly
   const onScrubIndexRef = useRef(onScrubIndex)
@@ -687,7 +692,7 @@ export function ShipCamera({ currentNode, targetNode, following, followSignal, r
       // zoom is still reachable. Disabled mid-travel (the rails own the camera).
       if (scrubModeRef.current && !e.shiftKey && polyRef.current.L > 0 && !travel.current) {
         scrubS.current = THREE.MathUtils.clamp(
-          scrubS.current + e.deltaY * SCRUB_SENS,
+          scrubS.current + e.deltaY * scrubStepRef.current,
           0,
           polyRef.current.L,
         )

@@ -217,6 +217,9 @@ export default function App() {
   // the route node the ship is nearest, reported live from the camera.
   const [scrubMode, setScrubMode] = useState(false)
   const [scrubIndex, setScrubIndex] = useState(0)
+  // Arc-length the ship advances per unit of wheel delta while scrubbing — the
+  // "how far each scroll jumps" knob, driven by a slider in the course panel.
+  const [scrubStep, setScrubStep] = useState(0.15)
   // The accumulated JOURNEY corridor: every node + edge actually travelled so
   // far. It's kept visible (never folded away), highlighted as a trail, and
   // exempt from the budget — so the narrative path builds up instead of the
@@ -1707,6 +1710,7 @@ export default function App() {
           overviewPoints={overviewPoints}
           scrubMode={scrubMode}
           scrubPath={scrubPath}
+          scrubStep={scrubStep}
           onScrubIndex={setScrubIndex}
           onUnlock={() => setFollowing(false)}
           onTaggedChange={setTaggedIds}
@@ -1762,6 +1766,8 @@ export default function App() {
         onClearCourse={handleClearCourse}
         scrubMode={scrubMode}
         scrubIndex={scrubIndex}
+        scrubStep={scrubStep}
+        onScrubStep={setScrubStep}
         onToggleScrub={handleToggleScrub}
         onDockCourse={handleDockCourse}
         tours={tours}

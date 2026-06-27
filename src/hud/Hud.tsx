@@ -77,6 +77,8 @@ interface Props {
   // route node the ship is nearest; onDockCourse(i) commits the preview there.
   scrubMode: boolean
   scrubIndex: number
+  scrubStep: number
+  onScrubStep: (value: number) => void
   onToggleScrub: () => void
   onDockCourse: (index: number) => void
   // Guided tours from the Atlas catalog (Plan G2); `file` is the path under the
@@ -166,6 +168,8 @@ export function Hud({
   onClearCourse,
   scrubMode,
   scrubIndex,
+  scrubStep,
+  onScrubStep,
   onToggleScrub,
   onDockCourse,
   tours,
@@ -286,6 +290,7 @@ export function Hud({
           onHoverEdge={onHoverEdge}
           onSetEdgeVisible={onSetEdgeVisible}
           onTravel={onTravel}
+          onPlotCourse={onPlotCourse}
           onExpand={onExpand}
           onCollapse={onCollapse}
           onClose={onClosePanel}
@@ -313,6 +318,8 @@ export function Hud({
             onClear={onClearCourse}
             scrubMode={scrubMode}
             scrubIndex={scrubIndex}
+            scrubStep={scrubStep}
+            onScrubStep={onScrubStep}
             onToggleScrub={onToggleScrub}
             onDock={onDockCourse}
           />

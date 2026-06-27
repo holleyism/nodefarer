@@ -191,6 +191,7 @@ interface Props {
   onHoverEdge: (id: string | null) => void
   onSetEdgeVisible: (id: string, visible: boolean) => void
   onTravel: (id: string) => void
+  onPlotCourse: (id: string) => void
   onExpand: (id: string) => void
   onCollapse: (id: string) => void
   onClose: () => void
@@ -210,6 +211,7 @@ export function NodePanel({
   onHoverEdge,
   onSetEdgeVisible,
   onTravel,
+  onPlotCourse,
   onExpand,
   onCollapse,
   onClose,
@@ -330,7 +332,15 @@ export function NodePanel({
       )}
 
       {!isCurrent && (
-        <Box sx={{ mt: 1.5 }}>
+        <Stack direction="row" spacing={1} sx={{ mt: 1.5 }}>
+          <Button
+            variant="outlined"
+            disabled={traveling}
+            onClick={() => onPlotCourse(node.id)}
+            sx={{ font: MONO, letterSpacing: 1.5, whiteSpace: 'nowrap', flexShrink: 0 }}
+          >
+            Plot course
+          </Button>
           <Button
             fullWidth
             variant="contained"
@@ -340,7 +350,7 @@ export function NodePanel({
           >
             Travel to {node.name}
           </Button>
-        </Box>
+        </Stack>
       )}
     </>
   )

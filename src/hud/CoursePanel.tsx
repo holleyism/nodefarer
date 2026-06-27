@@ -1,4 +1,4 @@
-import { Box, Stack, Typography } from '@mui/material'
+import { Box, Slider, Stack, Typography } from '@mui/material'
 import type { Graph } from '../types'
 import { HUD_TEXT, MONO, MONO_SMALL } from './hudStyles'
 
@@ -10,9 +10,12 @@ interface Props {
   onClear: () => void
   // Course-scrub: ride the route by scroll wheel instead of flying it in one
   // shot. scrubIndex = the route node the ship is currently nearest; onDock
-  // commits the preview at that node.
+  // commits the preview at that node. scrubStep = arc-length per wheel delta
+  // (the "how far each scroll jumps" knob); onScrubStep sets it live.
   scrubMode: boolean
   scrubIndex: number
+  scrubStep: number
+  onScrubStep: (value: number) => void
   onToggleScrub: () => void
   onDock: (index: number) => void
 }
@@ -21,7 +24,7 @@ interface Props {
 // is plotted. Describes the route (its stops) and offers Travel (fly it), Scrub
 // (ride it manually by wheel), or Clear (back to search). The route itself is
 // highlighted out in the scene.
-export function CoursePanel({ route, graph, onTravel, onClear, scrubMode, scrubIndex, onToggleScrub, onDock }: Props) {
+export function CoursePanel({ route, graph, onTravel, onClear, scrubMode, scrubIndex, scrubStep, onScrubStep, onToggleScrub, onDock }: Props) {
   const name = (id: string) => graph.nodeById.get(id)?.name ?? id
   const hops = Math.max(0, route.length - 1)
   const destination = route[route.length - 1]
@@ -84,6 +87,29 @@ export function CoursePanel({ route, graph, onTravel, onClear, scrubMode, scrubI
           </Stack>
           <Typography sx={{ font: MONO_SMALL, color: 'text.secondary', mt: 1 }}>
             Scroll to travel the course · Shift+scroll to zoom · Enter to dock.
+          </Typography>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, mt: 1 }}>
+            <Typography sx={{ font: MONO_SMALL, letterSpacing: 1, color: 'text.secondary' }}>STEP</Typography>
+            <Typography sx={{ font: MONO_SMALL, color: '#ffce7a' }}>{Math.round(scrubStep * 100)}</Typography>
+          </Box>
+          <Slider
+            size="small"
+            min={3}
+            max={60}
+            step={1}
+            value={Math.round(scrubStep * 100)}
+            onChange={(_, v) => onScrubStep((v as number) / 100)}
+            aria-label="Scroll step"
+            sx={{
+              mt: -0.5,
+              width: 'calc(100% - 14px)',
+              color: '#ffce7a',
+              '& .MuiSlider-thumb': { width: 12, height: 12 },
+            }}
+          />
+          <Typography sx={{ font: MONO_SMALL, color: 'text.secondary', mt: -0.5 }}>
+            How far each scroll jumps along the course. Lower = finer; raise it for
+            long, many-hop routes.
           </Typography>
         </>
       ) : (

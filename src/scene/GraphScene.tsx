@@ -56,6 +56,7 @@ interface Props {
   overviewPoints: [number, number, number][] | null
   scrubMode: boolean
   scrubPath: [number, number, number][] | null
+  scrubStep: number
   onScrubIndex: (index: number) => void
   onUnlock: () => void
   onTaggedChange: (ids: string[]) => void
@@ -94,6 +95,7 @@ export function GraphScene({
   overviewPoints,
   scrubMode,
   scrubPath,
+  scrubStep,
   onScrubIndex,
   onUnlock,
   onTaggedChange,
@@ -166,6 +168,7 @@ export function GraphScene({
         overviewPoints={overviewPoints}
         scrubMode={scrubMode}
         scrubPath={scrubPath}
+        scrubStep={scrubStep}
         onScrubIndex={onScrubIndex}
         onUnlock={onUnlock}
         onArrive={onArrive}
