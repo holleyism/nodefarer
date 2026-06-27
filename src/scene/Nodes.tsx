@@ -4,6 +4,7 @@ import * as THREE from 'three'
 import type { ThreeEvent } from '@react-three/fiber'
 import type { Graph, GraphNode, NodeType } from '../types'
 import { glowTexture } from './glow'
+import { useEnterExit } from './useEnterExit'
 
 export const NODE_RADIUS: Record<NodeType, number> = {
   work: 2.0,
@@ -34,6 +35,10 @@ interface NodeMeshProps {
   highlightColor: string
   // Spotlight: this node is NOT on the highlighted path, so fade it right back.
   dimmed: boolean
+  // Enter/exit fade (0…1): node dissolves in when it joins the scene and out when
+  // it leaves (nebula unfold/fold, arrival), instead of popping. Multiplies into
+  // every material's opacity.
+  fade: number
   // Registers this node's group so the parent can drive its position imperatively
   // during a live reform (kept in phase with the camera + beams).
   register: (id: string, g: THREE.Group | null) => void
@@ -41,7 +46,7 @@ interface NodeMeshProps {
   onTravel: (id: string) => void
 }
 
-const NodeMesh = memo(function NodeMesh({ node, x, y, z, color, geometry, isSelected, isCurrent, isHighlighted, highlightColor, dimmed, register, onSelect, onTravel }: NodeMeshProps) {
+const NodeMesh = memo(function NodeMesh({ node, x, y, z, color, geometry, isSelected, isCurrent, isHighlighted, highlightColor, dimmed, fade, register, onSelect, onTravel }: NodeMeshProps) {
   const radius = NODE_RADIUS[node.type]
   const setGroup = useCallback((g: THREE.Group | null) => register(node.id, g), [register, node.id])
   const handleClick = (e: ThreeEvent<MouseEvent>) => {
@@ -65,7 +70,7 @@ const NodeMesh = memo(function NodeMesh({ node, x, y, z, color, geometry, isSele
             map={glowTexture}
             color={isHighlighted ? highlightColor : color}
             transparent
-            opacity={isHighlighted ? 0.75 : isSelected ? 0.7 : dimmed ? 0.08 : 0.5}
+            opacity={(isHighlighted ? 0.75 : isSelected ? 0.7 : dimmed ? 0.08 : 0.5) * fade}
             blending={THREE.AdditiveBlending}
             depthWrite={false}
             toneMapped={false}
@@ -91,8 +96,8 @@ const NodeMesh = memo(function NodeMesh({ node, x, y, z, color, geometry, isSele
           emissiveIntensity={isHighlighted ? 1.7 : isSelected ? 1.6 : dimmed ? 0.12 : 0.7}
           roughness={0.4}
           metalness={0.1}
-          transparent={dimmed}
-          opacity={dimmed ? 0.28 : 1}
+          transparent={dimmed || fade < 1}
+          opacity={(dimmed ? 0.28 : 1) * fade}
         />
       </mesh>
     </group>
@@ -111,13 +116,15 @@ interface NodesProps {
   // While true, node positions are driven imperatively each frame from the live
   // node coords (a layout reform in progress) instead of from React props.
   live?: boolean
+  // Blast-door state — gates the enter/exit fade (see useEnterExit).
+  doorsClosed?: boolean
   onSelect: (id: string) => void
   onTravel: (id: string) => void
 }
 
 // The current node renders too — the ship hovers above it, so you see
 // your own "planet" below the viewport rather than sitting inside it.
-export function Nodes({ graph, selectedId, currentId, highlightNodes, dimOthers = false, live = false, onSelect, onTravel }: NodesProps) {
+export function Nodes({ graph, selectedId, currentId, highlightNodes, dimOthers = false, live = false, doorsClosed = false, onSelect, onTravel }: NodesProps) {
   const geometry = useMemo(() => new THREE.SphereGeometry(1, 24, 24), [])
 
   // Imperative per-frame position sync during a reform: keeps the node meshes in
@@ -140,13 +147,17 @@ export function Nodes({ graph, selectedId, currentId, highlightNodes, dimOthers 
     }
   })
 
+  // Enter/exit fade: nodes joining the scene dissolve in, departing ones dissolve
+  // out (and are kept rendering until faded), instead of popping on a fold/unfold.
+  const faded = useEnterExit(graph.nodes, (n) => n.id, doorsClosed)
+
   return (
     <group>
-      {graph.nodes.map((node) => {
+      {faded.map(({ key, item: node, opacity }) => {
         const hl = highlightNodes?.get(node.id)
         return (
           <NodeMesh
-            key={node.id}
+            key={key}
             node={node}
             x={node.x!}
             y={node.y!}
@@ -158,6 +169,7 @@ export function Nodes({ graph, selectedId, currentId, highlightNodes, dimOthers 
             isHighlighted={hl != null}
             highlightColor={hl ?? '#ffce7a'}
             dimmed={dimOthers && hl == null && node.id !== currentId}
+            fade={opacity}
             register={register}
             onSelect={onSelect}
             onTravel={onTravel}

@@ -1697,6 +1697,7 @@ export default function App() {
           onSelectNebula={handleSelectNebula}
           onHoverNebula={handleHoverNebula}
           liveLayout={liveLayout}
+          doorsClosed={doorsClosed}
           reformSim={reformSim}
           reformSteps={REFORM_STEPS}
           onReformDone={onReformDone}

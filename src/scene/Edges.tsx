@@ -4,6 +4,7 @@ import * as THREE from 'three'
 import type { Graph } from '../types'
 import { makeBeamMaterial } from './beamMaterial'
 import { NODE_RADIUS } from './Nodes'
+import { useEnterExit } from './useEnterExit'
 
 const UP = new THREE.Vector3(0, 1, 0)
 // How far past a node's radius the beam should already be gone. The end fade
@@ -60,13 +61,36 @@ interface EdgesProps {
   // Spotlight a highlighted path: everything NOT highlighted fades way back so
   // the lit route reads on its own.
   dimOthers?: boolean
+  // Blast-door state — gates the enter/exit fade (see useEnterExit).
+  doorsClosed?: boolean
 }
 
 // How far a non-highlighted beam falls back while the path is spotlit (fraction
 // of its normal opacity that remains).
 const DIM_KEEP = 0.16
 
-export function Edges({ graph, currentId, highlightEdges, live = false, dimOthers = false }: EdgesProps) {
+// Per-edge render record: a beam mesh + its own material (and, for wormholes, a
+// funnel geometry), kept in a persistent cache keyed by edge id so an edge
+// leaving the scene can stay rendered while it fades out (and is disposed only
+// once the fade has truly dropped it).
+interface EdgeItem {
+  id: string
+  source: string
+  target: string
+  worm: boolean
+  mat: ReturnType<typeof makeBeamMaterial>
+  geo: THREE.LatheGeometry | null // null → shared cylinder
+  scale: [number, number, number]
+  len0: number
+  activeF: number
+  hlF: number
+  dimF: number
+  hlColor: THREE.Color
+  mid: THREE.Vector3
+  quat: THREE.Quaternion
+}
+
+export function Edges({ graph, currentId, highlightEdges, live = false, dimOthers = false, doorsClosed = false }: EdgesProps) {
   const cylGeo = useMemo(() => new THREE.CylinderGeometry(1, 1, 1, 12, 24, true), [])
   // Latest per-edge highlight colours, read live inside the frame loop.
   const hlRef = useRef<Map<string, string>>(highlightEdges ?? new Map())
@@ -83,53 +107,87 @@ export function Edges({ graph, currentId, highlightEdges, live = false, dimOther
   }
   const scratch = useMemo(() => new THREE.Color(), [])
 
-  // One material (and, for wormholes, one funnel geometry) per edge so each can
-  // animate independently. Same shader program → no extra draw calls; meshes
-  // were already one-per-edge.
-  const items = useMemo(
-    () =>
-      graph.edges.map((e) => {
-        const a = graph.nodeById.get(e.source)!
-        const b = graph.nodeById.get(e.target)!
-        const av = new THREE.Vector3(a.x!, a.y!, a.z!)
-        const bv = new THREE.Vector3(b.x!, b.y!, b.z!)
-        const dir = bv.clone().sub(av).normalize()
-        const length = av.distanceTo(bv)
-        const worm = e.kind === 'semantic'
-        // Fade each end over (node radius + gap) so the beam stops short of the
-        // node surface, scaled per the actual node it meets.
-        const fadeA = THREE.MathUtils.clamp((NODE_RADIUS[a.type] + FADE_GAP) / length, 0.04, 0.45)
-        const fadeB = THREE.MathUtils.clamp((NODE_RADIUS[b.type] + FADE_GAP) / length, 0.04, 0.45)
-        return {
-          id: e.id,
-          source: e.source,
-          target: e.target,
-          worm,
-          mat: worm
-            ? makeBeamMaterial('#b98bff', ACTIVE_OP, 1, fadeA, fadeB)
-            : makeBeamMaterial('#7d9fd4', INACTIVE_OP, 0, fadeA, fadeB),
-          geo: worm ? funnelGeometry(length) : null, // null → shared cylGeo
-          scale: (worm ? [1, 1, 1] : [RADIUS, length, RADIUS]) as [number, number, number],
-          len0: length, // beam length at build — for the worm funnel's live scale ratio
-          activeF: 0, // animated 0→1 as this edge becomes/stops being a lane
-          hlF: 0, // animated 0→1 as this edge becomes/stops being highlighted
-          dimF: 0, // animated 0→1 as this edge fades back under a path spotlight
-          hlColor: new THREE.Color('#ffce7a'), // current highlight tint (per-edge)
-          mid: av.clone().add(bv).multiplyScalar(0.5),
-          quat: new THREE.Quaternion().setFromUnitVectors(UP, dir),
-        }
-      }),
-    [graph],
-  )
+  // Persistent per-edge cache. Built lazily for new edges and updated in place as
+  // endpoints move; an entry survives the edge leaving `graph` (it's still being
+  // faded out) and is disposed only when the enter/exit fade finally drops it.
+  const cache = useRef(new Map<string, EdgeItem>())
+
+  const buildOrUpdate = (id: string, source: string, target: string) => {
+    const a = graph.nodeById.get(source)
+    const b = graph.nodeById.get(target)
+    if (!a || !b || a.x == null || b.x == null) return // endpoint gone — keep last transform
+    const av = new THREE.Vector3(a.x!, a.y!, a.z!)
+    const bv = new THREE.Vector3(b.x!, b.y!, b.z!)
+    const dir = bv.clone().sub(av)
+    const length = dir.length()
+    dir.normalize()
+    const mid = av.clone().add(bv).multiplyScalar(0.5)
+    const quat = new THREE.Quaternion().setFromUnitVectors(UP, dir)
+    let it = cache.current.get(id)
+    if (!it) {
+      const worm = graph.edges.find((e) => e.id === id)?.kind === 'semantic'
+      // Fade each end over (node radius + gap) so the beam stops short of the
+      // node surface, scaled per the actual node it meets.
+      const fadeA = THREE.MathUtils.clamp((NODE_RADIUS[a.type] + FADE_GAP) / length, 0.04, 0.45)
+      const fadeB = THREE.MathUtils.clamp((NODE_RADIUS[b.type] + FADE_GAP) / length, 0.04, 0.45)
+      it = {
+        id,
+        source,
+        target,
+        worm,
+        mat: worm
+          ? makeBeamMaterial('#b98bff', ACTIVE_OP, 1, fadeA, fadeB)
+          : makeBeamMaterial('#7d9fd4', INACTIVE_OP, 0, fadeA, fadeB),
+        geo: worm ? funnelGeometry(length) : null,
+        scale: (worm ? [1, 1, 1] : [RADIUS, length, RADIUS]) as [number, number, number],
+        len0: length,
+        activeF: 0,
+        hlF: 0,
+        dimF: 0,
+        hlColor: new THREE.Color('#ffce7a'),
+        mid,
+        quat,
+      }
+      cache.current.set(id, it)
+    } else {
+      // Keep the static transform current as endpoints shift (non-live renders).
+      // Worms keep their fixed-length funnel geometry but rescale to the new span
+      // (same as the live-sync loop), so a relayout doesn't leave a stale conduit.
+      it.mid.copy(mid)
+      it.quat.copy(quat)
+      it.scale = it.worm ? [1, length / it.len0, 1] : [RADIUS, length, RADIUS]
+    }
+  }
+
+  // Refresh/extend the cache for every current edge before we resolve membership.
+  for (const e of graph.edges) buildOrUpdate(e.id, e.source, e.target)
+
+  // Enter/exit membership + fade for the edge set.
+  const faded = useEnterExit(graph.edges, (e) => e.id, doorsClosed)
+  // Mirror the live fade into a ref the easing loop reads, and dispose any cache
+  // entry the fade has finally dropped (no longer present and not still exiting).
+  const fadeRef = useRef(new Map<string, number>())
+  const liveIds = new Set(faded.map((f) => f.key))
+  const nextFade = new Map<string, number>()
+  for (const f of faded) nextFade.set(f.key, f.opacity)
+  fadeRef.current = nextFade
+  for (const [id, it] of cache.current) {
+    if (!liveIds.has(id)) {
+      it.mat.dispose()
+      it.geo?.dispose()
+      cache.current.delete(id)
+    }
+  }
 
   useEffect(
     () => () => {
-      for (const it of items) {
+      for (const it of cache.current.values()) {
         it.mat.dispose()
         it.geo?.dispose()
       }
+      cache.current.clear()
     },
-    [items],
+    [],
   )
 
   // Imperative per-frame transform sync during a reform: rebuild each beam's
@@ -146,15 +204,13 @@ export function Edges({ graph, currentId, highlightEdges, live = false, dimOther
   dimRef.current = dimOthers
   const graphRef = useRef(graph)
   graphRef.current = graph
-  const itemsRef = useRef(items)
-  itemsRef.current = items
   const av = useMemo(() => new THREE.Vector3(), [])
   const bv = useMemo(() => new THREE.Vector3(), [])
   const dir = useMemo(() => new THREE.Vector3(), [])
   useFrame(() => {
     if (!liveRef.current) return
     const g = graphRef.current
-    for (const it of itemsRef.current) {
+    for (const it of cache.current.values()) {
       const a = g.nodeById.get(it.source)
       const b = g.nodeById.get(it.target)
       if (!a || !b || a.x == null || b.x == null) continue
@@ -175,7 +231,10 @@ export function Edges({ graph, currentId, highlightEdges, live = false, dimOther
     const t = state.clock.elapsedTime
     const k = Math.min(1, delta * 6) // ~0.3s ease toward the active/inactive look
     const dimOn = dimRef.current
-    for (const it of items) {
+    for (const it of cache.current.values()) {
+      // Enter/exit dissolve, multiplied into whatever opacity the lane/highlight/
+      // dim state lands on (1 when fully present, so settled edges are unaffected).
+      const fade = fadeRef.current.get(it.id) ?? 1
       const hc = hlRef.current.get(it.id)
       // A spotlit path dims everything not highlighted (wormholes included).
       const dimTarget = dimOn && !hc ? 1 : 0
@@ -183,14 +242,14 @@ export function Edges({ graph, currentId, highlightEdges, live = false, dimOther
         it.mat.uTime = t
         it.dimF += (dimTarget - it.dimF) * k
         if (Math.abs(dimTarget - it.dimF) < 0.002) it.dimF = dimTarget
-        it.mat.uOpacity = ACTIVE_OP * (1 - (1 - DIM_KEEP) * it.dimF)
+        it.mat.uOpacity = ACTIVE_OP * (1 - (1 - DIM_KEEP) * it.dimF) * fade
         continue
       }
       const target = it.source === currentId || it.target === currentId ? 1 : 0
       const hlTarget = hc ? 1 : 0
       if (hc) it.hlColor.copy(colorFor(hc)) // keep last colour during fade-out
-      // Skip work only when fully settled across lane, highlight AND dim states.
-      if (it.activeF === target && it.hlF === hlTarget && it.dimF === dimTarget && hlTarget === 0 && dimTarget === 0)
+      // Skip work only when fully settled across lane, highlight, dim AND fade.
+      if (it.activeF === target && it.hlF === hlTarget && it.dimF === dimTarget && hlTarget === 0 && dimTarget === 0 && fade === 1)
         continue
       it.activeF += (target - it.activeF) * k
       if (Math.abs(target - it.activeF) < 0.002) it.activeF = target
@@ -204,24 +263,28 @@ export function Edges({ graph, currentId, highlightEdges, live = false, dimOther
       const baseOp = INACTIVE_OP + (ACTIVE_OP - INACTIVE_OP) * it.activeF
       it.mat.uColor.copy(scratch).lerp(it.hlColor, it.hlF)
       const op = baseOp + (HIGHLIGHT_OP - baseOp) * it.hlF
-      it.mat.uOpacity = op * (1 - (1 - DIM_KEEP) * it.dimF)
+      it.mat.uOpacity = op * (1 - (1 - DIM_KEEP) * it.dimF) * fade
     }
   })
 
   return (
     <group>
-      {items.map((it) => (
-        <mesh
-          key={it.id}
-          ref={(m) => registerMesh(it.id, m)}
-          geometry={it.geo ?? cylGeo}
-          material={it.mat}
-          position={it.mid}
-          quaternion={it.quat}
-          scale={it.scale}
-          raycast={() => null}
-        />
-      ))}
+      {faded.map(({ key }) => {
+        const it = cache.current.get(key)
+        if (!it) return null
+        return (
+          <mesh
+            key={key}
+            ref={(m) => registerMesh(key, m)}
+            geometry={it.geo ?? cylGeo}
+            material={it.mat}
+            position={it.mid}
+            quaternion={it.quat}
+            scale={it.scale}
+            raycast={() => null}
+          />
+        )
+      })}
     </group>
   )
 }

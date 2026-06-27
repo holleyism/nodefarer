@@ -37,6 +37,8 @@ interface Props {
   // Layout-reform animation (Plan H "watch reform"): a sim ticked in-loop while
   // `liveLayout` drives node/edge transforms imperatively, kept in phase.
   liveLayout: boolean
+  // Blast-door state — gates the node/edge enter/exit fade (see useEnterExit).
+  doorsClosed: boolean
   reformSim: { tick: () => void; stop: () => void } | null
   reformSteps: number
   onReformDone: () => void
@@ -82,6 +84,7 @@ export function GraphScene({
   onSelectNebula,
   onHoverNebula,
   liveLayout,
+  doorsClosed,
   reformSim,
   reformSteps,
   onReformDone,
@@ -127,14 +130,15 @@ export function GraphScene({
       <ambientLight intensity={0.7} />
       <directionalLight position={[200, 300, 100]} intensity={0.8} />
       <Stars radius={1200} depth={400} count={5000} factor={6} saturation={0.4} fade speed={0.4} />
-      <Nebulae bodies={nebulae} onSelect={onSelectNebula} onHover={onHoverNebula} />
-      <NebulaStubEdges stubs={nebulaStubs} />
+      <Nebulae bodies={nebulae} doorsClosed={doorsClosed} onSelect={onSelectNebula} onHover={onHoverNebula} />
+      <NebulaStubEdges stubs={nebulaStubs} doorsClosed={doorsClosed} />
       <Edges
         graph={graph}
         currentId={currentNode.id}
         highlightEdges={highlightEdges}
         live={liveLayout}
         dimOthers={spotlightPath}
+        doorsClosed={doorsClosed}
       />
       <EdgeHighlights graph={graph} pinnedEdgeIds={pinnedEdgeIds} hoveredEdgeId={hoveredEdgeId} />
       <Nodes
@@ -144,6 +148,7 @@ export function GraphScene({
         highlightNodes={highlightNodes}
         dimOthers={spotlightPath}
         live={liveLayout}
+        doorsClosed={doorsClosed}
         onSelect={onSelect}
         onTravel={onTravel}
       />
