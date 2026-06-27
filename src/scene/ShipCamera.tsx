@@ -88,6 +88,10 @@ function edgeStance(fwd: THREE.Vector3, curUp: THREE.Vector3) {
 
 // Scroll-wheel arc-length per wheel delta when scrubbing a course.
 const SCRUB_SENS = 0.25
+// Arc-length each side of a route vertex over which the scrub heading rounds the
+// corner (clamped to half a segment so adjacent corners never overlap). Larger =
+// a wider, lazier turn. Geometric, so the bank is the same at any scroll speed.
+const CORNER_W = 16
 
 interface Props {
   currentNode: GraphNode
@@ -170,6 +174,7 @@ export function ShipCamera({ currentNode, targetNode, following, followSignal, r
   const v1 = useMemo(() => new THREE.Vector3(), [])
   const axis = useMemo(() => new THREE.Vector3(), [])
   const nodePos = useMemo(() => new THREE.Vector3(), [])
+  const scrubDir = useMemo(() => new THREE.Vector3(), [])
   const qYaw = useMemo(() => new THREE.Quaternion(), [])
   const qPitch = useMemo(() => new THREE.Quaternion(), [])
   const qGaze = useMemo(() => new THREE.Quaternion(), [])
@@ -233,8 +238,8 @@ export function ShipCamera({ currentNode, targetNode, following, followSignal, r
     }
   }, [scrubMode, scrubPath])
 
-  // Map an arc-length s to a pose on the polyline: the point, the segment index
-  // it falls on, and the nearest node index (for the HUD/Dock).
+  // Map an arc-length s to a pose on the polyline: the point, the heading
+  // (rounded across corners), and the nearest node index (for the HUD/Dock).
   const poseAt = (s: number) => {
     const p = polyRef.current
     const sClamped = THREE.MathUtils.clamp(s, 0, p.L)
@@ -243,7 +248,33 @@ export function ShipCamera({ currentNode, targetNode, following, followSignal, r
     const segLen = p.cum[i + 1] - p.cum[i]
     const t = segLen > 1e-6 ? (sClamped - p.cum[i]) / segLen : 0
     nodePos.copy(p.pts[i]).lerp(p.pts[i + 1], t)
-    return { point: nodePos, dir: p.dirs[i], nearest: t < 0.5 ? i : i + 1 }
+    // Heading defaults to this segment's direction, but within CORNER_W of an
+    // interior vertex it eases toward the neighbouring segment so the ship banks
+    // through the turn. Each window is clamped to half its adjacent segments, so
+    // the approach side of one corner never collides with the leave side of the
+    // next. The blend factor passes through 0.5 (the bisector) exactly at the
+    // vertex, matching from both segments → a continuous heading across it.
+    scrubDir.copy(p.dirs[i])
+    const toEnd = p.cum[i + 1] - sClamped
+    const fromStart = sClamped - p.cum[i]
+    const blend = (a: THREE.Vector3, b: THREE.Vector3, f: number) => {
+      scrubDir.copy(a).lerp(b, f)
+      if (scrubDir.lengthSq() > 1e-6) scrubDir.normalize()
+      else scrubDir.copy(p.dirs[i])
+    }
+    let wOut = 0
+    if (i + 1 < p.dirs.length) {
+      wOut = Math.min(CORNER_W, segLen * 0.5, (p.cum[i + 2] - p.cum[i + 1]) * 0.5)
+    }
+    if (wOut > 1e-6 && toEnd < wOut) {
+      blend(p.dirs[i], p.dirs[i + 1], 0.5 * (1 - toEnd / wOut)) // 0 → 0.5
+    } else if (i > 0) {
+      const wIn = Math.min(CORNER_W, segLen * 0.5, (p.cum[i] - p.cum[i - 1]) * 0.5)
+      if (wIn > 1e-6 && fromStart < wIn) {
+        blend(p.dirs[i - 1], p.dirs[i], 0.5 + 0.5 * (fromStart / wIn)) // 0.5 → 1
+      }
+    }
+    return { point: nodePos, dir: scrubDir, nearest: t < 0.5 ? i : i + 1 }
   }
 
   useEffect(() => {
@@ -745,7 +776,9 @@ export function ShipCamera({ currentNode, targetNode, following, followSignal, r
       }
       v1.copy(Y_AXIS).applyQuaternion(scrubStance.current) // carried up
       const target = edgeStance(pose.dir, v1)
-      scrubStance.current.slerp(target, 1 - Math.exp(-6 * delta))
+      // Geometric corner-rounding lives in poseAt now, so this ease only needs to
+      // smooth the takeover-from-parked and free-look; track the heading tightly.
+      scrubStance.current.slerp(target, 1 - Math.exp(-9 * delta))
       stance.current.copy(scrubStance.current)
       v1.copy(Y_AXIS).applyQuaternion(stance.current).multiplyScalar(radius.current)
       camera.position.copy(pose.point).add(v1)
