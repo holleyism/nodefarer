@@ -332,12 +332,13 @@ export function NodePanel({
       )}
 
       {!isCurrent && (
-        <Stack direction="row" spacing={1} sx={{ mt: 1.5 }}>
+        <Stack spacing={1} sx={{ mt: 1.5 }}>
           <Button
+            fullWidth
             variant="outlined"
             disabled={traveling}
             onClick={() => onPlotCourse(node.id)}
-            sx={{ font: MONO, letterSpacing: 1.5, whiteSpace: 'nowrap', flexShrink: 0 }}
+            sx={{ font: MONO, letterSpacing: 1.5 }}
           >
             Plot course
           </Button>

@@ -235,6 +235,16 @@ export function Hud({
     if (tourActive) setOpenId(null)
   }, [tourActive])
 
+  // A plotted course opens its own rail panel — and does so the same way whether
+  // it was plotted from search or from a node's "Plot course" (which clears the
+  // selection, closing the inspector). Declared AFTER the inspector effect so it
+  // wins when both fire in one commit. Clearing or travelling closes it.
+  useEffect(() => {
+    if (tourActive) return
+    if (plottedRoute.length > 1 && !traveling) setOpenId('course')
+    else setOpenId((cur) => (cur === 'course' ? null : cur))
+  }, [plottedRoute.length, traveling, tourActive])
+
   const handleOpenChange = (id: string | null) => {
     if (tourActive) return
     // Leaving the inspector clears the selection; opening it with nothing
@@ -302,40 +312,51 @@ export function Hud({
       icon: '⌕',
       title: 'Scanner — search',
       width: 300,
-      // Cross-fade between the search box and the plotted-course view. Once the
-      // course is being travelled, drop back to search (the route stays
-      // highlighted in the scene until arrival).
-      contentKey: plottedRoute.length > 1 && !traveling ? 'course' : 'scanner',
-      content: ({ close }: { close: () => void }) =>
-        plottedRoute.length > 1 && !traveling ? (
-          <CoursePanel
-            route={plottedRoute}
-            graph={graph}
-            onTravel={() => {
-              close()
-              onTravelCourse()
-            }}
-            onClear={onClearCourse}
-            scrubMode={scrubMode}
-            scrubIndex={scrubIndex}
-            scrubStep={scrubStep}
-            onScrubStep={onScrubStep}
-            onToggleScrub={onToggleScrub}
-            onDock={onDockCourse}
-          />
-        ) : (
-          <SearchBar
-            onSearch={onSearch}
-            // Plot a course: highlight the route + auto-frame, keep the panel
-            // open (it shifts to the course view). Travel is then deliberate.
-            onPlotCourse={onPlotCourse}
-            onJump={(id) => {
-              close()
-              onJump(id)
-            }}
-          />
-        ),
+      content: ({ close }: { close: () => void }) => (
+        <SearchBar
+          onSearch={onSearch}
+          // Plot a course: highlight the route + auto-frame. The dedicated Course
+          // panel opens to drive it (see the 'course' rail item). Travel/Scrub are
+          // then a deliberate next step there.
+          onPlotCourse={onPlotCourse}
+          onJump={(id) => {
+            close()
+            onJump(id)
+          }}
+        />
+      ),
     },
+    // The course panel is its OWN rail item, present only while a course is
+    // plotted (and not yet travelling). It auto-opens on plot — from search OR
+    // from a node's "Plot course" — so the controls are reachable the same way
+    // however the course was created.
+    ...(plottedRoute.length > 1 && !traveling
+      ? [
+          {
+            id: 'course',
+            icon: '➤',
+            title: 'Course — plotted route',
+            width: 300,
+            content: ({ close }: { close: () => void }) => (
+              <CoursePanel
+                route={plottedRoute}
+                graph={graph}
+                onTravel={() => {
+                  close()
+                  onTravelCourse()
+                }}
+                onClear={onClearCourse}
+                scrubMode={scrubMode}
+                scrubIndex={scrubIndex}
+                scrubStep={scrubStep}
+                onScrubStep={onScrubStep}
+                onToggleScrub={onToggleScrub}
+                onDock={onDockCourse}
+              />
+            ),
+          } as RailItem,
+        ]
+      : []),
     {
       id: 'filter',
       icon: '▽',
