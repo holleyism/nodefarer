@@ -79,9 +79,24 @@ export function CoursePanel({ route, graph, onTravel, onClear, scrubMode, scrubI
 
       {scrubMode ? (
         <>
+          {/* Live dock target — its own full-width line so a long node name
+              ellipsizes here instead of stretching the Dock button and shoving
+              Stop off the panel edge. */}
+          <Typography
+            sx={{
+              font: MONO_SMALL,
+              color: '#ffce7a',
+              mb: 0.75,
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {nearIdx > 0 ? `Dock at: ${name(route[nearIdx])}` : 'Scroll to travel the course'}
+          </Typography>
           <Stack direction="row" spacing={1}>
             <CourseButton primary onClick={() => onDock(nearIdx)}>
-              ⚓ Dock{nearIdx > 0 ? ` — ${name(route[nearIdx])}` : ''}
+              ⚓ Dock
             </CourseButton>
             <CourseButton onClick={onToggleScrub}>✕ Stop</CourseButton>
           </Stack>
