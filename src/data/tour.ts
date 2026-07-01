@@ -82,6 +82,10 @@ export type TourOp =
       // Drop cross-field edges from the layout sim so each field packs tightly
       // around its centroid (no cross-galaxy tug on boundary nodes).
       isolate?: boolean
+      // Turn the gaze (animated, no zoom) toward this node once the regroup has
+      // settled — e.g. after the fields resolve, look toward where the next hop
+      // jumps, so the reveal ends pointed at something rather than empty space.
+      look?: string
     }
 
 export interface TourStep {
@@ -93,6 +97,12 @@ export interface TourStep {
   // The View transition applied when advancing to this step. Omit for a pure
   // narration beat over the current view (equivalent to { kind: 'look' }).
   op?: TourOp
+  // The camera pose this step EASES to (camera-continuity invariant — never a
+  // snap, never inherited). `altitude` = orbit height: a number, 'fit' (frame the
+  // op's points), or omitted (default viewing distance). `face` = node id to look
+  // toward; the orbit is derived from it (layouts are non-deterministic, so orbit
+  // is never hardcoded). Applied after the step's action settles.
+  camera?: { altitude?: number | 'fit'; face?: string }
   // Optional override for the advance button's label (flavor, e.g. "Cross the
   // wormhole →"). The engine otherwise derives Back / Next / End tour from the
   // step's position. There is deliberately NO close ✕ on a tour — see below.
@@ -178,7 +188,12 @@ export function resolveTourAnchors(tour: Tour, anchors: Record<string, AtlasAnch
     tour.entry.mode === 'node' && tour.entry.id != null
       ? { ...tour.entry, id: resolveAnchor(tour.entry.id, anchors) }
       : tour.entry
-  const steps = tour.steps.map((s) => (s.op ? { ...s, op: resolveOp(s.op, anchors) } : s))
+  const steps = tour.steps.map((s) => {
+    const next = { ...s }
+    if (s.op) next.op = resolveOp(s.op, anchors)
+    if (s.camera?.face) next.camera = { ...s.camera, face: resolveAnchor(s.camera.face, anchors) }
+    return next
+  })
   return { ...tour, entry, steps }
 }
 

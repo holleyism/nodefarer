@@ -1,6 +1,6 @@
 import { useCallback, useRef, useState } from 'react'
 import type { EntryMode } from '../data/GraphSource'
-import type { Tour, TourOp } from '../data/tour'
+import type { Tour, TourOp, TourStep } from '../data/tour'
 
 // The host app supplies these — the tour engine drives the real exploration
 // engine through them, so playback behaves exactly like manual navigation and a
@@ -9,8 +9,9 @@ import type { Tour, TourOp } from '../data/tour'
 export interface TourExecutor {
   // Re-anchor the universe on the tour's entry (full relayout, behind doors).
   reset: (entry: EntryMode) => Promise<void>
-  // Apply one step op to the working view; resolves when it settles.
-  runOp: (op: TourOp) => Promise<void>
+  // Apply one step's action (if any) to the working view, then ease the camera to
+  // the step's pose; resolves when it settles.
+  runOp: (op?: TourOp, camera?: TourStep['camera']) => Promise<void>
   // Capture / restore the full exploration state at a step boundary (for Back).
   snapshot: () => unknown
   restore: (snap: unknown) => Promise<void>
@@ -62,8 +63,9 @@ export function useTour(exec: TourExecutor): TourController {
     ;(async () => {
       await execRef.current.reset(t.entry)
       // The first step's op is usually omitted (entry already landed); apply it
-      // if present so a tour can open with a filter/expand baked in.
-      if (t.steps[0]?.op) await execRef.current.runOp(t.steps[0].op)
+      // (and/or its camera) if present so a tour can open with a baked-in framing.
+      const s0 = t.steps[0]
+      if (s0?.op || s0?.camera) await execRef.current.runOp(s0.op, s0.camera)
       snaps.current[0] = execRef.current.snapshot()
       setBusy(false)
     })()
@@ -80,8 +82,8 @@ export function useTour(exec: TourExecutor): TourController {
     const target = i + 1
     setBusy(true)
     ;(async () => {
-      const op = t.steps[target].op
-      if (op) await execRef.current.runOp(op)
+      const step = t.steps[target]
+      if (step.op || step.camera) await execRef.current.runOp(step.op, step.camera)
       snaps.current[target] = execRef.current.snapshot()
       setIndex(target)
       setBusy(false)

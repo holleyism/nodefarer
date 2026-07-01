@@ -53,6 +53,8 @@ interface Props {
     destination: [number, number, number]
     zoom?: boolean
     instant?: boolean
+    altitude?: number
+    altitudeOnly?: boolean
   } | null
   overviewSignal: number
   overviewPoints: [number, number, number][] | null
@@ -130,8 +132,8 @@ export function GraphScene({
       <ambientLight intensity={0.7} />
       <directionalLight position={[200, 300, 100]} intensity={0.8} />
       <Stars radius={1200} depth={400} count={5000} factor={6} saturation={0.4} fade speed={0.4} />
-      <Nebulae bodies={nebulae} doorsClosed={doorsClosed} onSelect={onSelectNebula} onHover={onHoverNebula} />
-      <NebulaStubEdges stubs={nebulaStubs} doorsClosed={doorsClosed} />
+      <Nebulae bodies={nebulae} onSelect={onSelectNebula} onHover={onHoverNebula} />
+      <NebulaStubEdges stubs={nebulaStubs} />
       <Edges
         graph={graph}
         currentId={currentNode.id}

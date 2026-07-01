@@ -113,6 +113,14 @@ interface Props {
     destination: [number, number, number]
     zoom?: boolean
     instant?: boolean
+    // Explicit orbit height (radius). When set, the framing eases to THIS altitude
+    // instead of searching for a fit — the per-step tour camera uses it so each
+    // step lands at a controlled altitude rather than inheriting the last one.
+    altitude?: number
+    // Ease ONLY the altitude — leave stance + gaze untouched. Used before a flight
+    // (the flight owns stance/gaze; touching them here would wobble), so the ship
+    // just descends to its travelling altitude. radiusAnim survives travel setup.
+    altitudeOnly?: boolean
   } | null
   // Bumped to pull WAY back to an overview that frames every supplied point (the
   // whole journey corridor) — slerps the orientation + dollies out to a 3/4-from-
@@ -228,20 +236,25 @@ export function ShipCamera({ currentNode, targetNode, following, followSignal, r
   // live stance (no snap on takeover). Reset whenever the mode toggles.
   const scrubFresh = useRef(true)
 
-  // Engage/disengage scrub: reset to the start of the course and re-seed. On
-  // disengage (mode off), return to the ship — a clean parked stance + gaze over
-  // the current node, undoing the lane frame the scrub left in `stance`.
+  // Re-seed the scrub position whenever the mode or course changes.
   useEffect(() => {
     scrubS.current = 0
     scrubIndexRef.current = -1
     scrubFresh.current = true
-    if (!scrubMode) {
-      stance.current.identity()
-      look.current.yaw = 0
-      look.current.pitch = 0
-      scrubStance.current.identity()
-    }
   }, [scrubMode, scrubPath])
+
+  // Return to the ship ONLY when scrub actually disengages (mode → off): a clean
+  // parked stance + gaze over the current node, undoing the lane frame scrub left
+  // in `stance`. Keyed on `scrubMode` ALONE — a course changing (plottedRoute →
+  // scrubPath) must NOT re-level the camera, or every tour plot/travelCourse would
+  // snap the orbit + gaze to identity mid-flight.
+  useEffect(() => {
+    if (scrubMode) return
+    stance.current.identity()
+    look.current.yaw = 0
+    look.current.pitch = 0
+    scrubStance.current.identity()
+  }, [scrubMode])
 
   // Map an arc-length s to a pose on the polyline: the point, the heading
   // (rounded across corners), and the nearest node index (for the HUD/Dock).
@@ -298,13 +311,12 @@ export function ShipCamera({ currentNode, targetNode, following, followSignal, r
     if (import.meta.env.DEV) (window as unknown as { __ship: typeof shipBus }).__ship = shipBus
   }, [])
 
-  // Recenter: snap the orbit stance + gaze + zoom back to default and re-anchor
-  // the camera over the current node. Declared BEFORE the travel-setup effect so
-  // that when a traversal starts right after a re-frame (both fire in one commit,
-  // e.g. travelling a plotted course), the stance is already normalized — the leg
-  // then takes the clean top-down auto-aim path instead of the keepOrbit path,
-  // which would otherwise set off in the old orbited direction. Parked, this just
-  // re-centers the view on the current node.
+  // Re-level to the default parked pose (orbit stance + gaze + altitude). Used on
+  // a tour ENTRY, fired BEHIND the closed blast doors — so the doors open onto the
+  // tour's settled initial view (default orbit/altitude over the entry node)
+  // rather than catching a camera mid-move or stuck at the previous zoom. Because
+  // it's hidden by the doors it's applied at once. `recenterKeepZoom` leaves the
+  // altitude alone (re-level orbit/gaze only).
   useEffect(() => {
     if (recenterSignal === 0) return
     stance.current.identity()
@@ -312,17 +324,10 @@ export function ShipCamera({ currentNode, targetNode, following, followSignal, r
     look.current.pitch = 0
     aim.current = null
     stanceAnim.current = null
-    // Restore the default dolly distance unless this re-frame keeps the zoom
-    // (manual travel preserves the user's chosen distance; scripted moves and
-    // plotted-course travel reset to the standard viewing zoom).
     if (!keepZoomRef.current) {
       radius.current = ORBIT_R
       radiusAnim.current = null
     }
-    // Re-anchor over the node now (don't wait for the next parked frame), so a
-    // traversal computed in this same commit starts from the normalized spot.
-    const n = currentRef.current
-    camera.position.set(n.x!, n.y!, n.z!).addScaledVector(Y_AXIS, radius.current)
   }, [recenterSignal])
 
   useEffect(() => {
@@ -417,6 +422,18 @@ export function ShipCamera({ currentNode, targetNode, following, followSignal, r
     const node = new THREE.Vector3(n.x!, n.y!, n.z!)
     const dest = new THREE.Vector3(frameTarget.destination[0], frameTarget.destination[1], frameTarget.destination[2])
 
+    // Altitude-only: ease just the orbit height, leaving stance + gaze for the
+    // flight to own (no stance/gaze wobble before travelling).
+    if (frameTarget.altitudeOnly && frameTarget.altitude != null) {
+      radiusAnim.current = {
+        from: radius.current,
+        to: THREE.MathUtils.clamp(frameTarget.altitude, MIN_R, MAX_R),
+        t: 0,
+        dur: 0.7,
+      }
+      return
+    }
+
     // zoom === false: only turn the gaze to the destination, keeping the current
     // stance + dolly distance (e.g. selecting a node on a plotted route — turn to
     // it without changing the route framing).
@@ -449,8 +466,8 @@ export function ShipCamera({ currentNode, targetNode, following, followSignal, r
     const pts = frameTarget.points.map((p) => new THREE.Vector3(p[0], p[1], p[2]))
     if (pts.length === 0) pts.push(dest)
     const center = pts.reduce((a, p) => a.add(p), new THREE.Vector3()).multiplyScalar(1 / pts.length)
-    // Frame top-down (stance identity → camera sits at node + up·R looking down).
-    stance.current.identity()
+    // Frame top-down: the probe computes the fit with world-up (independent of the
+    // live stance), and the stance EASES toward identity below — never snaps.
     probe.fov = camera.fov
     probe.aspect = camera.aspect
     probe.near = camera.near
@@ -472,31 +489,41 @@ export function ShipCamera({ currentNode, targetNode, following, followSignal, r
     const rAt = (i: number) => MIN_R * Math.pow(MAX_R / MIN_R, i / STEPS)
     let chosenR = MAX_R
     let lookAt = dest
-    let fitAll = false
-    for (let i = 0; i <= STEPS; i++) {
-      place(rAt(i), center)
-      if (within(dest) && pts.every(within)) {
-        chosenR = rAt(i)
-        lookAt = center
-        fitAll = true
-        break
-      }
-    }
-    if (!fitAll) {
-      // Destination-guaranteed fallback: look straight at it, pick the zoom that
-      // keeps the most waypoints on screen (smallest R on a tie → closer view).
-      let best = -1
+    if (frameTarget.altitude != null) {
+      // Explicit altitude (per-step tour camera): ease to THIS orbit height and
+      // face the destination — no fit search, so the step lands at a controlled
+      // altitude regardless of where the camera was.
+      chosenR = THREE.MathUtils.clamp(frameTarget.altitude, MIN_R, MAX_R)
+      lookAt = dest
+    } else {
+      let fitAll = false
       for (let i = 0; i <= STEPS; i++) {
-        place(rAt(i), dest)
-        const count = pts.filter(within).length
-        if (count > best) {
-          best = count
+        place(rAt(i), center)
+        if (within(dest) && pts.every(within)) {
           chosenR = rAt(i)
+          lookAt = center
+          fitAll = true
+          break
         }
       }
-      lookAt = dest
+      if (!fitAll) {
+        // Destination-guaranteed fallback: look straight at it, pick the zoom that
+        // keeps the most waypoints on screen (smallest R on a tie → closer view).
+        let best = -1
+        for (let i = 0; i <= STEPS; i++) {
+          place(rAt(i), dest)
+          const count = pts.filter(within).length
+          if (count > best) {
+            best = count
+            chosenR = rAt(i)
+          }
+        }
+        lookAt = dest
+      }
     }
-    // Animate the dolly out and the turn toward the route.
+    // Ease the orbit toward the top-down fit (stance → identity), dolly out, and
+    // turn the gaze — all FROM the current pose, so the framing never snaps.
+    stanceAnim.current = { from: stance.current.clone(), to: new THREE.Quaternion(), t: 0, dur: 0.7 }
     radiusAnim.current = { from: radius.current, to: chosenR, t: 0, dur: 0.7 }
     const finalPos = node.clone().addScaledVector(Y_AXIS, chosenR)
     const face = faceYawPitch(finalPos, lookAt)

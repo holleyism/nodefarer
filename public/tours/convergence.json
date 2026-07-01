@@ -18,6 +18,7 @@
       "title": "The sky resolves into fields",
       "body": "Now switch on the field map: every paper grouped by its discipline, each field its own glowing galaxy. The distant fields fold away into clouds — we can't see inside them from here. But notice the faint threads still reaching out toward them: connections leave Computer Science and run into other disciplines entirely. The ideas this architecture was built from are out there, upstream. Let's follow a thread back.",
       "op": { "kind": "nebula", "on": true, "watch": true, "fold": "distant", "strength": 0.6, "spread": 440, "coverage": 0.9, "isolate": true },
+      "camera": { "altitude": 200 },
       "nextLabel": "Reach back, out of computer science →"
     },
     {
@@ -32,6 +33,7 @@
       "title": "The ancestor: a 1982 idea in neuroscience",
       "body": "Fly the course. We leave computer science, pass through that lone bridge, and arrive — in neuroscience, on a paper from 1982. A physicist's model of memory: a network of simple units settling into the stable states of an energy landscape. Four decades before the transformer, in a different field entirely, here is an ancestor of the idea.",
       "op": { "kind": "travelCourse", "inspect": true },
+      "camera": { "altitude": 6 },
       "nextLabel": "Older still →"
     },
     {
@@ -46,6 +48,7 @@
       "title": "Into physics",
       "body": "Make the crossing. We leave neuroscience behind and land in physics — on a 1986 study of spin glasses, disordered magnets. It's the same mathematics: a rugged energy landscape, a system relaxing into a stable low-energy state. Physicists reached for it to explain magnets; Hopfield reached back for it to make a network remember. The transformer's lineage now runs through three fields and forty years — and the trail behind us stays lit.",
       "op": { "kind": "travelCourse", "inspect": true },
+      "camera": { "altitude": 6 },
       "nextLabel": "And from biology →"
     },
     {
@@ -53,6 +56,7 @@
       "title": "Back to the meeting point",
       "body": "Before the last root, come back to where the lines cross — Hopfield's 1982 paper. Look at the trail we've drawn: the transformer's lineage runs back to here, and from here a thread already reaches out into physics. This is the convergence point — the place a single idea, the energy landscape, was borrowed into a model of memory. There's one more field it came from.",
       "op": { "kind": "travel", "to": "@origin", "inspect": true },
+      "camera": { "altitude": 6 },
       "nextLabel": "And from biology →"
     },
     {
@@ -67,6 +71,7 @@
       "title": "Into biology",
       "body": "Make the final crossing. We leave Hopfield once more and land in biochemistry, on the 1997 protein-folding paper. Three distant fields have now handed the same idea forward — disordered magnets, a model of memory, a folding molecule — each a rugged energy landscape, each a system settling into its lowest state.",
       "op": { "kind": "travelCourse", "inspect": true },
+      "camera": { "altitude": 6 },
       "nextLabel": "See the whole path →"
     },
     {

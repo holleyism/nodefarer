@@ -1,0 +1,56 @@
+{
+  "schemaVersion": 1,
+  "id": "plato",
+  "title": "Plato's Problem — the leap no citation would show you",
+  "subtitle": "Follow concept-learning until a semantic wormhole leaps clean out of the field.",
+  "bundle": "bundle.json",
+  "entry": { "mode": "node", "id": "W2127770685", "maxNodes": 40 },
+  "steps": [
+    {
+      "id": "land",
+      "title": "Cognition from connections",
+      "body": "Connectionism: the idea that thinking emerges from networks of simple units, each doing almost nothing on its own. \"Parallel Distributed Processing\" is its banner — and we've parked on it, its details open, deep in computer science. We're going to follow a single thread out of here: how a network comes to KNOW things — to hold a concept, to mean something. It's a question that doesn't stay in computer science.",
+      "op": { "kind": "inspect", "id": "W2127770685" },
+      "nextLabel": "Reveal the fields →"
+    },
+    {
+      "id": "fields",
+      "title": "The sky resolves into fields",
+      "body": "Switch on the field map: every paper resolves into its discipline — each field its own glowing galaxy. We're inside Computer Science. The other fields hang at a distance, with faint threads already crossing between them: connections leaving computer science for other disciplines entirely. Hold onto that — the idea we're chasing won't stay in this galaxy.",
+      "op": { "kind": "nebula", "on": true, "watch": true, "fold": "none", "strength": 0.6, "spread": 440, "coverage": 0.9, "isolate": true },
+      "camera": { "altitude": 200, "face": "W1488309867" },
+      "nextLabel": "Follow it toward meaning →"
+    },
+    {
+      "id": "meaning",
+      "title": "Where does meaning come from?",
+      "body": "Follow a citation out of this paper. It crosses — already — into psychology: \"Semantic Cognition,\" a study of how a network gradually comes to represent what things MEAN: what a robin is, how it differs from a rose. We've changed galaxies on an ordinary citation, and we're still chasing the same single idea — how a network comes to know. An idea isn't bounded by its field. Hold that thought.",
+      "op": { "kind": "travel", "to": "W1488309867", "inspect": true },
+      "camera": { "altitude": 6 },
+      "nextLabel": "How is a concept learned? →"
+    },
+    {
+      "id": "acquire",
+      "title": "Acquiring a concept",
+      "body": "Keep following the thread. A 1991 model — \"A modular neural network model of concept acquisition\" — asks not just how a network REPRESENTS a concept, but how it LEARNS a new one at all. The citation carries us back into computer science. We've stayed inside a single idea the whole way: how a network comes to know. This is where it gets strange.",
+      "op": { "kind": "travel", "to": "W2112939431", "inspect": true },
+      "camera": { "altitude": 6 },
+      "nextLabel": "What else connects here? →"
+    },
+    {
+      "id": "wormhole",
+      "title": "Not every link is a citation",
+      "body": "Two violet conduits bloom from this node — semantic kin the citation graph never drew: papers that MEAN something similar, in other fields. One reaches another network model of how minds form categories — still inside machine learning. The other leaps clean out of it, into another galaxy entirely. We turn to face the far one.",
+      "op": { "kind": "expand", "nodeId": "W2112939431", "rule": { "relType": "semantic", "limit": 2 }, "face": "W4252434862" },
+      "nextLabel": "Follow the wormhole →"
+    },
+    {
+      "id": "surprise",
+      "title": "Plato's Problem",
+      "body": "The humanities. \"A solution to Plato's problem\" — latent semantic analysis, 1997. It answers a question Plato asked 2,400 years ago: how do we come to know so much from so little? And its answer is the very idea we've been following — meaning learned from patterns of co-occurrence, the same mechanism a neural network uses to acquire a concept. A model of mind, alive in philosophy — and no citation chain would ever have walked you here.",
+      "op": { "kind": "inspect", "id": "W4252434862" },
+      "camera": { "altitude": "fit", "face": "W4252434862" },
+      "nextLabel": "Cross the wormhole →"
+    }
+  ]
+}

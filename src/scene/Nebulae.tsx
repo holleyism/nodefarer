@@ -2,7 +2,6 @@ import { useEffect, useMemo, useRef } from 'react'
 import { useFrame } from '@react-three/fiber'
 import { Billboard, Html } from '@react-three/drei'
 import { AdditiveBlending, BackSide, DoubleSide, IcosahedronGeometry, Mesh, MeshBasicMaterial } from 'three'
-import { useEnterExit } from './useEnterExit'
 
 // A nebula rendered as a volumetric body (Plan H2): a soft translucent glow
 // enclosing a group's members, so a field reads as one luminous cloud. The body
@@ -116,22 +115,18 @@ function NebulaLock({ radius, color, label }: { radius: number; color: string; l
 
 function NebulaBlob({
   body,
-  fade,
   onSelect,
   onHover,
 }: {
   body: NebulaBody
-  // Enter/exit dissolve (0…1): a cloud blooms in when its field appears and
-  // dissolves out as the field unfolds into its member nodes (and back on fold).
-  fade: number
   onSelect: (key: string) => void
   onHover: (key: string | null) => void
 }) {
   const geo = useMemo(() => makeBlob(hashSeed(body.key)), [body.key])
   useEffect(() => () => geo.dispose(), [geo])
   const lit = body.focused || body.hovered
-  const outerOp = ((body.folded ? 0.12 : 0.05) + (lit ? 0.08 : 0)) * fade
-  const innerOp = ((body.folded ? 0.14 : 0.06) + (lit ? 0.08 : 0)) * fade
+  const outerOp = (body.folded ? 0.12 : 0.05) + (lit ? 0.08 : 0)
+  const innerOp = (body.folded ? 0.14 : 0.06) + (lit ? 0.08 : 0)
   return (
     <group position={body.center}>
       <mesh geometry={geo} scale={body.radius} raycast={() => null}>
@@ -161,9 +156,8 @@ function NebulaBlob({
 
       {/* Folded clouds are the click/hover targets (members are hidden, so no
           conflict with node picking). A fresh FrontSide hit-sphere takes the
-          interaction reliably. Only a fully-present cloud picks — a body fading
-          out (mid-unfold) mustn't intercept clicks meant for its emerging nodes. */}
-      {body.folded && fade > 0.95 && (
+          interaction reliably. */}
+      {body.folded && (
         <mesh
           scale={body.radius}
           onClick={(e) => {
@@ -190,22 +184,17 @@ function NebulaBlob({
 
 export function Nebulae({
   bodies,
-  doorsClosed = false,
   onSelect,
   onHover,
 }: {
   bodies: NebulaBody[]
-  doorsClosed?: boolean
   onSelect: (key: string) => void
   onHover: (key: string | null) => void
 }) {
-  // Enter/exit dissolve so a cloud cross-fades with its member nodes on
-  // fold/unfold instead of popping in or out.
-  const faded = useEnterExit(bodies, (b) => b.key, doorsClosed)
   return (
     <>
-      {faded.map(({ key, item: body, opacity }) => (
-        <NebulaBlob key={key} body={body} fade={opacity} onSelect={onSelect} onHover={onHover} />
+      {bodies.map((b) => (
+        <NebulaBlob key={b.key} body={b} onSelect={onSelect} onHover={onHover} />
       ))}
     </>
   )

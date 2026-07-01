@@ -159,6 +159,13 @@ export default function App() {
   const [view, setView] = useState<View | null>(null)
   const [schema, setSchema] = useState<GraphSchema | null>(null)
   const [currentId, setCurrentId] = useState<string | null>(null)
+  // Latest view + current node, readable from async tour callbacks (e.g. applying
+  // a step's camera AFTER a travel has changed the current node) without a stale
+  // render-time closure.
+  const viewRef = useRef<View | null>(null)
+  viewRef.current = view
+  const currentIdRef = useRef<string | null>(null)
+  currentIdRef.current = currentId
 
   const [selectedId, setSelectedId] = useState<string | null>(null)
   // Edges the user pinned from the selected node's link list (bracketed in the
@@ -237,6 +244,11 @@ export default function App() {
     zoom?: boolean
     // true → snap the gaze instantly (no animated turn), e.g. behind the doors.
     instant?: boolean
+    // Explicit orbit height to ease to (per-step tour camera) — skips the fit.
+    altitude?: number
+    // Ease only the altitude (radius), leaving stance + gaze alone — used before a
+    // flight so the ship descends to its travelling altitude without a wobble.
+    altitudeOnly?: boolean
   } | null>(null)
   // Overview pull-back (tour recap): pull the camera back to frame a set of world
   // points (the whole journey corridor) at once.
@@ -447,9 +459,10 @@ export default function App() {
   // narration the user is reading.
   const handleTravel = (id: string) => {
     if (tourActiveRef.current) return
-    // Normalize the orbit + gaze before a manual traversal (so the first hop
-    // doesn't fly off in the orbited direction), but keep the user's dolly zoom.
-    reframeForMove(true)
+    // Lock to the course so the flight reorients via the eased edge-frame turn
+    // (which starts from the CURRENT orbit — no snap to a baseline). The dolly
+    // zoom is left as-is, so the view carries continuously into the traversal.
+    setFollowing(true)
     handleTravelCore(id)
   }
   const handleTravelCore = (id: string) => {
@@ -828,6 +841,13 @@ export default function App() {
         clearEdges()
         setShownEdgeIds(new Set())
         setHiddenEdgeIds(new Set())
+        // Set the initial view BEHIND the doors: default orbit + altitude over the
+        // entry node, so the doors open onto the tour's settled framing rather than
+        // the previous (e.g. zoomed-out) pose. This is the one baseline the
+        // continuity invariant establishes; the doors hide the change, so no snap
+        // is ever seen, and every later step carries the view forward from here.
+        setRecenterKeepZoom(false)
+        setRecenterSignal((r) => r + 1)
       }
     })
   // Land on a search hit (suppressed while a tour drives the view).
@@ -948,6 +968,11 @@ export default function App() {
     if (done) requestAnimationFrame(() => requestAnimationFrame(done))
   }
 
+  // Hold the node we're parked on FIXED through a regroup, so the field map
+  // resolves AROUND the camera instead of dragging it (the camera is anchored to
+  // this node — if it drifts to its cluster centroid the whole view snaps along).
+  // Cleared by unpinAll once the reform settles (onReformDone / runForceLayout).
+  const pinCurrent = () => (currentId ? new Set([currentId]) : undefined)
   const restageNebula = (on: boolean, gs: number, spacing: number, isolate = nebulaIsolate) => {
     if (!view || traveling || tourActiveRef.current) return
     let cluster: ClusterSpec | undefined
@@ -958,11 +983,11 @@ export default function App() {
     if (watchReform) {
       reformSim?.stop() // abandon any in-flight reform
       reformViewRef.current = view
-      setReformSim(buildSimulation(view, { cluster }))
+      setReformSim(buildSimulation(view, { cluster, pinIds: pinCurrent() }))
       setLiveLayout(true)
     } else {
       behindDoors(async (_s, v) => {
-        runForceLayout(v, { cluster })
+        runForceLayout(v, { cluster, pinIds: pinCurrent() })
         return () => setView({ ...v })
       })
     }
@@ -1080,20 +1105,10 @@ export default function App() {
 
   // Apply one tour step op to the working view. Each branch maps onto the same
   // GraphSource call manual navigation uses (`look` is camera/edge-only).
-  // Re-lock the course and snap the orbit/gaze back to default — only for ops
-  // that MOVE the ship (travel/land). Parked ops (filter/expand/look) preserve
-  // the current view, so a step like the recap doesn't yank the camera around.
-  // keepZoom: preserve the current dolly distance (manual travel) rather than
-  // resetting to default (scripted moves / plotted-course travel).
-  const reframeForMove = (keepZoom = false) => {
-    setFollowing(true)
-    setRecenterKeepZoom(keepZoom)
-    setRecenterSignal((r) => r + 1)
-  }
-  const runOp = (op: TourOp): Promise<void> => {
+  const runOpCore = (op: TourOp): Promise<void> => {
     switch (op.kind) {
       case 'land':
-        reframeForMove()
+        // resetTo eases to the initial view itself (no pre-snap needed).
         return resetTo({ mode: 'node', id: op.id, maxNodes: op.maxNodes })
       case 'inspect': {
         // Open the details panel on the node (the ship doesn't move). The rail
@@ -1135,31 +1150,34 @@ export default function App() {
       case 'filter':
         setPredicate(op.predicate)
         return nextFrame()
-      case 'expand':
-        return behindDoorsAsync(async (s, v) => {
-          const nv = await s.expand(v, op.nodeId, op.rule)
+      case 'expand': {
+        // Reveal LIVE — no blast doors. Expand only adds a few nodes on a PINNED
+        // layout (nothing else moves), and the enter/exit fade dissolves them in,
+        // so there's no settling to hide; closing the doors just to surface a
+        // couple of nodes + move the camera felt heavy. The camera then eases back
+        // (the smooth overview move — stance/dolly/gaze, no snap) to frame the
+        // revealed conduit: the current node and the faced far node, so the thread
+        // that leaps across reads end-to-end with the kin that stay sitting near.
+        const s = sourceRef.current
+        if (!s || !view) return nextFrame()
+        const cur = currentId
+        return s.expand(view, op.nodeId, op.rule).then((nv) => {
           runForceLayout(nv, { pin: true, cluster: clusterForPinned(nv) })
-          return () => {
-            setView(nv)
-            // Turn (instantly, behind the doors) to look down the conduit to the
-            // revealed node — aim at the midpoint so the current node (near) and
-            // the wormhole both read when the doors open, without centring the
-            // far node. Doors then open already viewing the connection.
-            if (op.face) {
-              const fn = nv.nodeById.get(op.face)
-              const cn = currentId ? nv.nodeById.get(currentId) : null
-              if (fn?.x != null && cn?.x != null) {
-                const mid: [number, number, number] = [
-                  (cn.x! + fn.x!) / 2,
-                  (cn.y! + fn.y!) / 2,
-                  (cn.z! + fn.z!) / 2,
-                ]
-                setFrameTarget({ points: [mid], destination: mid, zoom: false, instant: true })
-                setFrameSignal((f) => f + 1)
-              }
+          setView(nv)
+          if (op.face) {
+            const fn = nv.nodeById.get(op.face)
+            const cn = cur ? nv.nodeById.get(cur) : null
+            if (fn?.x != null && cn?.x != null) {
+              setOverviewPoints([
+                [cn.x!, cn.y!, cn.z!],
+                [fn.x!, fn.y!, fn.z!],
+              ])
+              setOverviewSignal((n) => n + 1)
             }
           }
+          return nextFrame()
         })
+      }
       case 'collapse':
         return behindDoorsAsync(async (s, v) => {
           const nv = await s.collapse(v, op.nodeId, op.fromId)
@@ -1202,6 +1220,21 @@ export default function App() {
             setFoldedGroups(new Set()) // turning grouping off clears any folds
           }
         }
+        // After the regroup settles, optionally turn the gaze toward a node (e.g.
+        // look toward where the next hop jumps), so the reveal ends pointed at
+        // something. Gaze-only (no zoom), reading the node's now-regrouped spot.
+        const applyLook = () => {
+          if (!op.look || !view) return
+          const fn = view.nodeById.get(op.look)
+          if (fn?.x != null) {
+            setFrameTarget({
+              points: [[fn.x!, fn.y!, fn.z!]],
+              destination: [fn.x!, fn.y!, fn.z!],
+              zoom: false,
+            })
+            setFrameSignal((f) => f + 1)
+          }
+        }
         if (op.on && (op.watch ?? true) && view) {
           // Animated reveal: regroup with the simulation visible (doors open),
           // resolving the step once LayoutReform reports it has settled.
@@ -1212,12 +1245,13 @@ export default function App() {
               if (settled) return
               settled = true
               applyFold()
+              applyLook()
               resolve()
             }
             reformDoneRef.current = finish
             reformSim?.stop()
             reformViewRef.current = view
-            setReformSim(buildSimulation(view, { cluster }))
+            setReformSim(buildSimulation(view, { cluster, pinIds: pinCurrent() }))
             setLiveLayout(true)
             setTimeout(finish, 5000) // safety: never hang the tour on a stalled reform
           })
@@ -1225,15 +1259,18 @@ export default function App() {
         // Snap (no animation) or turning grouping off: relayout behind the doors.
         return behindDoorsAsync(async (_s, v) => {
           const cluster = op.on ? clusterOf(v) : undefined
-          runForceLayout(v, { cluster })
+          runForceLayout(v, { cluster, pinIds: pinCurrent() })
           return () => {
             setView({ ...v })
             applyFold()
+            applyLook()
           }
         })
       }
       case 'travel':
-        reframeForMove()
+        // Lock to the course (eased edge-frame turn from the current orbit) — no
+        // recenter, so the view carries continuously from the previous step.
+        setFollowing(true)
         if (op.collapseOffPath) setAutoCollapse(true)
         return travelTo(op.to).then(() => {
           // Arrived — open the destination's details (we're now parked on it).
@@ -1307,6 +1344,67 @@ export default function App() {
       setShowWormholes(snap.showWormholes)
       setPlottedRoute(snap.plottedRoute ?? [])
       clearEdges()
+    })
+  }
+  // Default orbit height a step eases to when its camera doesn't name one — matches
+  // ShipCamera's ORBIT_R (the standard parked viewing distance).
+  const DEFAULT_STEP_ALTITUDE = 5
+  // Ease the camera to a step's declared pose: a controlled altitude (explicit, or
+  // 'fit' the neighbourhood, or the default) and a face target (explicit node, else
+  // the in-view neighbour centroid). Orbit is derived; nothing inherited — so a
+  // step never "stays zoomed out". Reads live refs (the current node may have just
+  // changed via a travel).
+  const stepCameraFrame = (camera: { altitude?: number | 'fit'; face?: string }, altitudeOnly = false) => {
+    const v = viewRef.current
+    const cid = currentIdRef.current
+    if (!v || !cid) return
+    const cn = v.nodeById.get(cid)
+    if (!cn || cn.x == null) return
+    // Before a flight: ease ONLY the altitude (the flight owns stance + gaze).
+    if (altitudeOnly) {
+      const altitude = typeof camera.altitude === 'number' ? camera.altitude : DEFAULT_STEP_ALTITUDE
+      setFrameTarget({ points: [], destination: [cn.x!, cn.y!, cn.z!], altitude, altitudeOnly: true, zoom: true })
+      setFrameSignal((f) => f + 1)
+      return
+    }
+    let facePos: [number, number, number] = [cn.x!, cn.y!, cn.z!]
+    if (camera.face) {
+      const fn = v.nodeById.get(camera.face)
+      if (fn?.x != null) facePos = [fn.x!, fn.y!, fn.z!]
+    } else {
+      let cx = 0, cy = 0, cz = 0, k = 0
+      for (const id of v.neighbors.get(cid) ?? []) {
+        const nb = v.nodeById.get(id)
+        if (nb?.x != null) { cx += nb.x!; cy += nb.y!; cz += nb.z!; k++ }
+      }
+      if (k > 0) facePos = [cx / k, cy / k, cz / k]
+    }
+    if (camera.altitude === 'fit') {
+      const pts: [number, number, number][] = [[cn.x!, cn.y!, cn.z!]]
+      for (const id of v.neighbors.get(cid) ?? []) {
+        const nb = v.nodeById.get(id)
+        if (nb?.x != null) pts.push([nb.x!, nb.y!, nb.z!])
+      }
+      setFrameTarget({ points: pts, destination: facePos, zoom: true })
+    } else {
+      const altitude = typeof camera.altitude === 'number' ? camera.altitude : DEFAULT_STEP_ALTITUDE
+      setFrameTarget({ points: [], destination: facePos, zoom: true, altitude })
+    }
+    setFrameSignal((f) => f + 1)
+  }
+  // Run a step's action (if any) and ease the camera to the step's pose. For a
+  // FLIGHT (travel/travelCourse) the pose is applied BEFORE the flight — the ship
+  // drops to the step's altitude and follows the lane, instead of flying from the
+  // previous (e.g. route-overview) framing. radiusAnim survives the travel setup,
+  // so the altitude keeps easing through the flight. Every other action applies
+  // the pose after it settles. A step may carry only a camera (no op).
+  const runOp = (op?: TourOp, camera?: { altitude?: number | 'fit'; face?: string }): Promise<void> => {
+    if (op && camera && (op.kind === 'travel' || op.kind === 'travelCourse')) {
+      stepCameraFrame(camera, true) // altitude-only — the flight owns stance + gaze
+      return nextFrame().then(() => runOpCore(op))
+    }
+    return (op ? runOpCore(op) : Promise.resolve()).then(() => {
+      if (camera) stepCameraFrame(camera)
     })
   }
   const tourExec: TourExecutor = { reset: resetTo, runOp, snapshot, restore }

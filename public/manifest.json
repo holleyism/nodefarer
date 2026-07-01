@@ -101,6 +101,11 @@
       "file": "tours/convergence.json",
       "title": "Convergence — where a revolution comes from",
       "subtitle": "The transformer’s roots across four fields"
+    },
+    {
+      "file": "tours/plato.json",
+      "title": "Plato's Problem — the leap no citation would show you",
+      "subtitle": "Concept-learning → a semantic wormhole into philosophy"
     }
   ]
 }
