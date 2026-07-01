@@ -59,10 +59,12 @@ export type TourOp =
   // once (a recap finale): slerp + dolly to a vantage that fits every node the
   // ship has passed through.
   | { kind: 'overview' }
-  // Toggle the nebula grouping (fields → galaxies). `watch` (default true) runs
-  // the regroup as a visible reform with the doors open, so the "sky resolves
-  // into fields" beat animates; false snaps it behind the doors. Grouping uses
-  // the Atlas legend's nebula lens (e.g. by Field). `fold: 'distant'` then
+  // Toggle the nebula grouping (fields → galaxies). The step's `doors` governs
+  // HOW it resolves: live (doors omitted/false) runs the regroup as a visible
+  // reform so the "sky resolves into fields" beat animates; `doors: true` snaps
+  // it behind the closed doors. Turning grouping OFF always goes behind the
+  // doors. Grouping uses the Atlas legend's nebula lens (e.g. by Field). `fold:
+  // 'distant'` then
   // collapses every nebula EXCEPT the one we're in — members hidden, but the
   // connections into them still show as fading stub beams ("you can't see that
   // far yet"). `strength` (0..1) and `spread` (the centroid spacing, ~100..1000)
@@ -71,7 +73,6 @@ export type TourOp =
   | {
       kind: 'nebula'
       on: boolean
-      watch?: boolean
       fold?: 'distant' | 'none'
       strength?: number
       spread?: number
@@ -103,6 +104,16 @@ export interface TourStep {
   // toward; the orbit is derived from it (layouts are non-deterministic, so orbit
   // is never hardcoded). Applied after the step's action settles.
   camera?: { altitude?: number | 'fit'; face?: string }
+  // Transition style for the WHOLE step — the action swap AND the camera move:
+  //  • true  → both resolve behind the closed blast doors, which open onto the
+  //            settled result (what the tour ENTRY does). No motion is seen.
+  //  • false / omitted → the action plays live (revealed nodes dissolve in,
+  //            removed ones dissolve out) and the camera EASES visibly.
+  // Each action has a natural default (expand/add reveal live; collapse and a
+  // regroup-off go behind the doors; a `nebula` regroup-on reforms live) that
+  // `doors` overrides. The enter/exit node fade is suppressed for a nebula
+  // regroup/fold regardless — there the reform itself is the motion.
+  doors?: boolean
   // Optional override for the advance button's label (flavor, e.g. "Cross the
   // wormhole →"). The engine otherwise derives Back / Next / End tour from the
   // step's position. There is deliberately NO close ✕ on a tour — see below.

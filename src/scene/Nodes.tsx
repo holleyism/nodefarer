@@ -118,13 +118,16 @@ interface NodesProps {
   live?: boolean
   // Blast-door state — gates the enter/exit fade (see useEnterExit).
   doorsClosed?: boolean
+  // Node ids present BEFORE the nebula fold-mask — lets the fade snap (not
+  // dissolve) nodes that fold away / unfold. See useEnterExit.
+  fullKeys?: Set<string>
   onSelect: (id: string) => void
   onTravel: (id: string) => void
 }
 
 // The current node renders too — the ship hovers above it, so you see
 // your own "planet" below the viewport rather than sitting inside it.
-export function Nodes({ graph, selectedId, currentId, highlightNodes, dimOthers = false, live = false, doorsClosed = false, onSelect, onTravel }: NodesProps) {
+export function Nodes({ graph, selectedId, currentId, highlightNodes, dimOthers = false, live = false, doorsClosed = false, fullKeys, onSelect, onTravel }: NodesProps) {
   const geometry = useMemo(() => new THREE.SphereGeometry(1, 24, 24), [])
 
   // Imperative per-frame position sync during a reform: keeps the node meshes in
@@ -149,7 +152,7 @@ export function Nodes({ graph, selectedId, currentId, highlightNodes, dimOthers 
 
   // Enter/exit fade: nodes joining the scene dissolve in, departing ones dissolve
   // out (and are kept rendering until faded), instead of popping on a fold/unfold.
-  const faded = useEnterExit(graph.nodes, (n) => n.id, doorsClosed)
+  const faded = useEnterExit(graph.nodes, (n) => n.id, doorsClosed, fullKeys)
 
   return (
     <group>

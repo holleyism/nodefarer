@@ -521,12 +521,25 @@ export function ShipCamera({ currentNode, targetNode, following, followSignal, r
         lookAt = dest
       }
     }
+    const finalPos = node.clone().addScaledVector(Y_AXIS, chosenR)
+    const face = faceYawPitch(finalPos, lookAt)
+    // instant: settle the pose at once — used behind the closed blast doors, so they
+    // open onto the framing with no visible ease. Top-down stance, target dolly,
+    // gaze on the target.
+    if (frameTarget.instant) {
+      stanceAnim.current = null
+      radiusAnim.current = null
+      aim.current = null
+      stance.current.identity()
+      radius.current = chosenR
+      look.current.yaw += wrapPi(face.yaw - look.current.yaw)
+      look.current.pitch = THREE.MathUtils.clamp(face.pitch, -1.45, 1.45)
+      return
+    }
     // Ease the orbit toward the top-down fit (stance → identity), dolly out, and
     // turn the gaze — all FROM the current pose, so the framing never snaps.
     stanceAnim.current = { from: stance.current.clone(), to: new THREE.Quaternion(), t: 0, dur: 0.7 }
     radiusAnim.current = { from: radius.current, to: chosenR, t: 0, dur: 0.7 }
-    const finalPos = node.clone().addScaledVector(Y_AXIS, chosenR)
-    const face = faceYawPitch(finalPos, lookAt)
     const toYaw = look.current.yaw + wrapPi(face.yaw - look.current.yaw)
     const angle = Math.hypot(toYaw - look.current.yaw, face.pitch - look.current.pitch)
     aim.current = {

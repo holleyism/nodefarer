@@ -1105,7 +1105,7 @@ export default function App() {
 
   // Apply one tour step op to the working view. Each branch maps onto the same
   // GraphSource call manual navigation uses (`look` is camera/edge-only).
-  const runOpCore = (op: TourOp): Promise<void> => {
+  const runOpCore = (op: TourOp, doors?: boolean): Promise<void> => {
     switch (op.kind) {
       case 'land':
         // resetTo eases to the initial view itself (no pre-snap needed).
@@ -1151,6 +1151,18 @@ export default function App() {
         setPredicate(op.predicate)
         return nextFrame()
       case 'expand': {
+        const s = sourceRef.current
+        if (!s || !view) return nextFrame()
+        // Behind the doors (opt-in): add the nodes on a pinned relayout while the
+        // scene is covered, opening onto the settled result. The step's camera (if
+        // any) frames it from behind the doors — no live overview turn here.
+        if (doors === true) {
+          return behindDoorsAsync(async (src, v) => {
+            const nv = await src.expand(v, op.nodeId, op.rule)
+            runForceLayout(nv, { pin: true, cluster: clusterForPinned(nv) })
+            return () => setView(nv)
+          })
+        }
         // Reveal LIVE — no blast doors. Expand only adds a few nodes on a PINNED
         // layout (nothing else moves), and the enter/exit fade dissolves them in,
         // so there's no settling to hide; closing the doors just to surface a
@@ -1158,8 +1170,6 @@ export default function App() {
         // (the smooth overview move — stance/dolly/gaze, no snap) to frame the
         // revealed conduit: the current node and the faced far node, so the thread
         // that leaps across reads end-to-end with the kin that stay sitting near.
-        const s = sourceRef.current
-        if (!s || !view) return nextFrame()
         const cur = currentId
         return s.expand(view, op.nodeId, op.rule).then((nv) => {
           runForceLayout(nv, { pin: true, cluster: clusterForPinned(nv) })
@@ -1178,12 +1188,25 @@ export default function App() {
           return nextFrame()
         })
       }
-      case 'collapse':
+      case 'collapse': {
+        // Live (opt-in): prune with the doors open so the removed subtree
+        // dissolves out (the enter/exit fade eases it away). Default prunes behind
+        // the doors, where the relayout settle is hidden.
+        if (doors === false) {
+          const s = sourceRef.current
+          if (!s || !view) return nextFrame()
+          return s.collapse(view, op.nodeId, op.fromId).then((nv) => {
+            runForceLayout(nv, { pin: true, cluster: clusterForPinned(nv) })
+            setView(nv)
+            return nextFrame()
+          })
+        }
         return behindDoorsAsync(async (s, v) => {
           const nv = await s.collapse(v, op.nodeId, op.fromId)
           runForceLayout(nv, { pin: true, cluster: clusterForPinned(nv) })
           return () => setView(nv)
         })
+      }
       case 'nebula': {
         // Turn the field grouping on/off. Drives the same machinery the manual
         // console toggle uses, but reusable from a tour (restageNebula itself
@@ -1235,9 +1258,9 @@ export default function App() {
             setFrameSignal((f) => f + 1)
           }
         }
-        if (op.on && (op.watch ?? true) && view) {
-          // Animated reveal: regroup with the simulation visible (doors open),
-          // resolving the step once LayoutReform reports it has settled.
+        if (op.on && doors !== true && view) {
+          // Live reveal (default): regroup with the simulation visible (doors
+          // open), resolving the step once LayoutReform reports it has settled.
           const cluster = clusterOf(view)
           return new Promise<void>((resolve) => {
             let settled = false
@@ -1256,7 +1279,8 @@ export default function App() {
             setTimeout(finish, 5000) // safety: never hang the tour on a stalled reform
           })
         }
-        // Snap (no animation) or turning grouping off: relayout behind the doors.
+        // Behind the doors: a `doors: true` snap, or turning grouping off — relayout
+        // hidden, opening onto the settled result.
         return behindDoorsAsync(async (_s, v) => {
           const cluster = op.on ? clusterOf(v) : undefined
           runForceLayout(v, { cluster, pinIds: pinCurrent() })
@@ -1354,7 +1378,7 @@ export default function App() {
   // the in-view neighbour centroid). Orbit is derived; nothing inherited — so a
   // step never "stays zoomed out". Reads live refs (the current node may have just
   // changed via a travel).
-  const stepCameraFrame = (camera: { altitude?: number | 'fit'; face?: string }, altitudeOnly = false) => {
+  const stepCameraFrame = (camera: { altitude?: number | 'fit'; face?: string }, altitudeOnly = false, instant = false) => {
     const v = viewRef.current
     const cid = currentIdRef.current
     if (!v || !cid) return
@@ -1385,12 +1409,32 @@ export default function App() {
         const nb = v.nodeById.get(id)
         if (nb?.x != null) pts.push([nb.x!, nb.y!, nb.z!])
       }
-      setFrameTarget({ points: pts, destination: facePos, zoom: true })
+      setFrameTarget({ points: pts, destination: facePos, zoom: true, instant })
     } else {
       const altitude = typeof camera.altitude === 'number' ? camera.altitude : DEFAULT_STEP_ALTITUDE
-      setFrameTarget({ points: [], destination: facePos, zoom: true, altitude })
+      setFrameTarget({ points: [], destination: facePos, zoom: true, altitude, instant })
     }
     setFrameSignal((f) => f + 1)
+  }
+  // Whether a step's action resolves BEHIND the closed blast doors (so its camera
+  // should settle there too, not ease in the open). Mirrors the per-op routing in
+  // runOpCore: `land` always re-lays out behind the doors; `collapse` and turning
+  // grouping OFF default to behind-doors; `doors: true` forces expand/collapse/a
+  // regroup behind them. Everything else (flights, plot/inspect/look/filter/
+  // overview, a live regroup) plays in the open.
+  const opGoesBehindDoors = (op: TourOp, doors?: boolean): boolean => {
+    switch (op.kind) {
+      case 'land':
+        return true
+      case 'collapse':
+        return doors !== false
+      case 'expand':
+        return doors === true
+      case 'nebula':
+        return doors === true || !op.on
+      default:
+        return false
+    }
   }
   // Run a step's action (if any) and ease the camera to the step's pose. For a
   // FLIGHT (travel/travelCourse) the pose is applied BEFORE the flight — the ship
@@ -1398,13 +1442,17 @@ export default function App() {
   // previous (e.g. route-overview) framing. radiusAnim survives the travel setup,
   // so the altitude keeps easing through the flight. Every other action applies
   // the pose after it settles. A step may carry only a camera (no op).
-  const runOp = (op?: TourOp, camera?: { altitude?: number | 'fit'; face?: string }): Promise<void> => {
+  const runOp = (op?: TourOp, camera?: { altitude?: number | 'fit'; face?: string }, doors?: boolean): Promise<void> => {
     if (op && camera && (op.kind === 'travel' || op.kind === 'travelCourse')) {
       stepCameraFrame(camera, true) // altitude-only — the flight owns stance + gaze
-      return nextFrame().then(() => runOpCore(op))
+      return nextFrame().then(() => runOpCore(op, doors))
     }
-    return (op ? runOpCore(op) : Promise.resolve()).then(() => {
-      if (camera) stepCameraFrame(camera)
+    // A behind-doors action settles the scene while it's covered, so its camera
+    // resolves behind the doors too (instant — the doors open onto the pose); a
+    // live action eases the camera visibly.
+    const behind = op ? opGoesBehindDoors(op, doors) : false
+    return (op ? runOpCore(op, doors) : Promise.resolve()).then(() => {
+      if (camera) stepCameraFrame(camera, false, behind)
     })
   }
   const tourExec: TourExecutor = { reset: resetTo, runOp, snapshot, restore }
@@ -1636,6 +1684,11 @@ export default function App() {
           ),
         )
       : display.display
+  // Keys present BEFORE the fold-mask (post-filter): a node/edge in these but not
+  // in displayGraph was folded away, so its fade snaps instead of dissolving (the
+  // reform is the motion). Small sets, cheap to rebuild each render. See useEnterExit.
+  const preFoldNodeKeys = new Set(display.display.nodes.map((n) => n.id))
+  const preFoldEdgeKeys = new Set(display.display.edges.map((e) => e.id))
   // Tag each body with its fold/focus/hover state for the scene. The nebula we
   // are INSIDE is never drawn as a cloud — its haze just fogs the foreground and
   // is hard to read from within; we render its member nodes, not a body.
@@ -1796,6 +1849,8 @@ export default function App() {
           onHoverNebula={handleHoverNebula}
           liveLayout={liveLayout}
           doorsClosed={doorsClosed}
+          fullNodeKeys={preFoldNodeKeys}
+          fullEdgeKeys={preFoldEdgeKeys}
           reformSim={reformSim}
           reformSteps={REFORM_STEPS}
           onReformDone={onReformDone}

@@ -39,6 +39,10 @@ interface Props {
   liveLayout: boolean
   // Blast-door state — gates the node/edge enter/exit fade (see useEnterExit).
   doorsClosed: boolean
+  // Node/edge ids present BEFORE the nebula fold-mask, so the fade can snap
+  // (not dissolve) whatever the fold hides/reveals. See useEnterExit.
+  fullNodeKeys: Set<string>
+  fullEdgeKeys: Set<string>
   reformSim: { tick: () => void; stop: () => void } | null
   reformSteps: number
   onReformDone: () => void
@@ -87,6 +91,8 @@ export function GraphScene({
   onHoverNebula,
   liveLayout,
   doorsClosed,
+  fullNodeKeys,
+  fullEdgeKeys,
   reformSim,
   reformSteps,
   onReformDone,
@@ -141,6 +147,7 @@ export function GraphScene({
         live={liveLayout}
         dimOthers={spotlightPath}
         doorsClosed={doorsClosed}
+        fullKeys={fullEdgeKeys}
       />
       <EdgeHighlights graph={graph} pinnedEdgeIds={pinnedEdgeIds} hoveredEdgeId={hoveredEdgeId} />
       <Nodes
@@ -151,6 +158,7 @@ export function GraphScene({
         dimOthers={spotlightPath}
         live={liveLayout}
         doorsClosed={doorsClosed}
+        fullKeys={fullNodeKeys}
         onSelect={onSelect}
         onTravel={onTravel}
       />

@@ -63,6 +63,9 @@ interface EdgesProps {
   dimOthers?: boolean
   // Blast-door state — gates the enter/exit fade (see useEnterExit).
   doorsClosed?: boolean
+  // Edge ids present BEFORE the nebula fold-mask — lets the fade snap (not
+  // dissolve) edges that fold away / unfold. See useEnterExit.
+  fullKeys?: Set<string>
 }
 
 // How far a non-highlighted beam falls back while the path is spotlit (fraction
@@ -90,7 +93,7 @@ interface EdgeItem {
   quat: THREE.Quaternion
 }
 
-export function Edges({ graph, currentId, highlightEdges, live = false, dimOthers = false, doorsClosed = false }: EdgesProps) {
+export function Edges({ graph, currentId, highlightEdges, live = false, dimOthers = false, doorsClosed = false, fullKeys }: EdgesProps) {
   const cylGeo = useMemo(() => new THREE.CylinderGeometry(1, 1, 1, 12, 24, true), [])
   // Latest per-edge highlight colours, read live inside the frame loop.
   const hlRef = useRef<Map<string, string>>(highlightEdges ?? new Map())
@@ -163,7 +166,7 @@ export function Edges({ graph, currentId, highlightEdges, live = false, dimOther
   for (const e of graph.edges) buildOrUpdate(e.id, e.source, e.target)
 
   // Enter/exit membership + fade for the edge set.
-  const faded = useEnterExit(graph.edges, (e) => e.id, doorsClosed)
+  const faded = useEnterExit(graph.edges, (e) => e.id, doorsClosed, fullKeys)
   // Mirror the live fade into a ref the easing loop reads, and dispose any cache
   // entry the fade has finally dropped (no longer present and not still exiting).
   const fadeRef = useRef(new Map<string, number>())

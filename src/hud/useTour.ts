@@ -9,9 +9,10 @@ import type { Tour, TourOp, TourStep } from '../data/tour'
 export interface TourExecutor {
   // Re-anchor the universe on the tour's entry (full relayout, behind doors).
   reset: (entry: EntryMode) => Promise<void>
-  // Apply one step's action (if any) to the working view, then ease the camera to
-  // the step's pose; resolves when it settles.
-  runOp: (op?: TourOp, camera?: TourStep['camera']) => Promise<void>
+  // Apply one step's action (if any) to the working view, then move the camera to
+  // the step's pose; resolves when it settles. `doors` picks the transition
+  // style — behind the closed blast doors (settled on open) vs a live/eased move.
+  runOp: (op?: TourOp, camera?: TourStep['camera'], doors?: boolean) => Promise<void>
   // Capture / restore the full exploration state at a step boundary (for Back).
   snapshot: () => unknown
   restore: (snap: unknown) => Promise<void>
@@ -65,7 +66,7 @@ export function useTour(exec: TourExecutor): TourController {
       // The first step's op is usually omitted (entry already landed); apply it
       // (and/or its camera) if present so a tour can open with a baked-in framing.
       const s0 = t.steps[0]
-      if (s0?.op || s0?.camera) await execRef.current.runOp(s0.op, s0.camera)
+      if (s0?.op || s0?.camera) await execRef.current.runOp(s0.op, s0.camera, s0.doors)
       snaps.current[0] = execRef.current.snapshot()
       setBusy(false)
     })()
@@ -83,7 +84,7 @@ export function useTour(exec: TourExecutor): TourController {
     setBusy(true)
     ;(async () => {
       const step = t.steps[target]
-      if (step.op || step.camera) await execRef.current.runOp(step.op, step.camera)
+      if (step.op || step.camera) await execRef.current.runOp(step.op, step.camera, step.doors)
       snaps.current[target] = execRef.current.snapshot()
       setIndex(target)
       setBusy(false)

@@ -17,7 +17,7 @@
       "id": "fields",
       "title": "The sky resolves into fields",
       "body": "Now switch on the field map: every paper grouped by its discipline, each field its own glowing galaxy. The distant fields fold away into clouds — we can't see inside them from here. But notice the faint threads still reaching out toward them: connections leave Computer Science and run into other disciplines entirely. The ideas this architecture was built from are out there, upstream. Let's follow a thread back.",
-      "op": { "kind": "nebula", "on": true, "watch": true, "fold": "distant", "strength": 0.6, "spread": 440, "coverage": 0.9, "isolate": true },
+      "op": { "kind": "nebula", "on": true, "fold": "distant", "strength": 0.6, "spread": 440, "coverage": 0.9, "isolate": true },
       "camera": { "altitude": 200 },
       "nextLabel": "Reach back, out of computer science →"
     },

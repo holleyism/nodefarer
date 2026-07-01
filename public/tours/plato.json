@@ -17,7 +17,7 @@
       "id": "fields",
       "title": "The sky resolves into fields",
       "body": "Switch on the field map: every paper resolves into its discipline — each field its own glowing galaxy. We're inside Computer Science. The other fields hang at a distance, with faint threads already crossing between them: connections leaving computer science for other disciplines entirely. Hold onto that — the idea we're chasing won't stay in this galaxy.",
-      "op": { "kind": "nebula", "on": true, "watch": true, "fold": "none", "strength": 0.6, "spread": 440, "coverage": 0.9, "isolate": true },
+      "op": { "kind": "nebula", "on": true, "fold": "none", "strength": 0.6, "spread": 440, "coverage": 0.9, "isolate": true },
       "camera": { "altitude": 200, "face": "W1488309867" },
       "nextLabel": "Follow it toward meaning →"
     },
