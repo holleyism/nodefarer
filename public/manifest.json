@@ -78,26 +78,6 @@
   },
   "tours": [
     {
-      "file": "tours/s1-idea-genealogy.json",
-      "title": "Idea genealogy & diffusion",
-      "subtitle": "Hopfield 1982 → modern attention"
-    },
-    {
-      "file": "tours/s2-wormhole-bankruptcy.json",
-      "title": "Wormhole: from memory to markets",
-      "subtitle": "Associative memory → corporate bankruptcy"
-    },
-    {
-      "file": "tours/s3-wormhole-astrophysics.json",
-      "title": "Wormhole: from sequences to the cosmos",
-      "subtitle": "Time-series forecasting → gravitational waves"
-    },
-    {
-      "file": "tours/s4-wormhole-plato.json",
-      "title": "Wormhole: from networks to Plato",
-      "subtitle": "Concept learning → Plato’s problem"
-    },
-    {
       "file": "tours/convergence.json",
       "title": "Convergence — where a revolution comes from",
       "subtitle": "The transformer’s roots across four fields"
