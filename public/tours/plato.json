@@ -51,6 +51,37 @@
       "op": { "kind": "inspect", "id": "W4252434862" },
       "camera": { "altitude": "fit", "face": "W4252434862" },
       "nextLabel": "Cross the wormhole →"
+    },
+    {
+      "id": "cross",
+      "title": "Through the wormhole",
+      "body": "Make the crossing. We leave machine learning behind and land in the humanities, on \"A solution to Plato's problem.\" The link we just followed wasn't a citation — it was meaning itself: two papers that say something deeply alike, matched by what they're ABOUT rather than what they cite. No chain of references would ever have carried you across this gap.",
+      "op": { "kind": "travel", "to": "W4252434862", "inspect": true },
+      "camera": { "altitude": 6 },
+      "nextLabel": "Explore the far side →"
+    },
+    {
+      "id": "landing",
+      "title": "A world of its own",
+      "body": "This is no dead end. The paper blooms into its own neighbourhood — its co-authors, the journal that published it, the concepts it turns on, the papers it speaks to. A whole living field on the far side of a link that meaning drew: serious scholarship, in a discipline the machine-learning trail never once pointed toward.",
+      "op": { "kind": "expand", "nodeId": "W4252434862", "rule": { "limit": 12 } },
+      "camera": { "altitude": "fit" },
+      "nextLabel": "Who was asking? →"
+    },
+    {
+      "id": "who",
+      "title": "Who was asking",
+      "body": "Meet Thomas Landauer — a cognitive psychologist, publishing in Psychological Review in 1997. Not a computer scientist stumbling onto the same math, but a mind asking Plato's 2,400-year-old question head-on: how do we come to know so much from so little? His answer — meaning distilled from the raw statistics of language — is the very idea we followed out of connectionism. Different field, different words, one thought.",
+      "op": { "kind": "inspect", "id": "A5112868485" },
+      "camera": { "altitude": "fit", "face": "A5112868485" },
+      "nextLabel": "See the whole journey →"
+    },
+    {
+      "id": "recap",
+      "title": "Found by exploring",
+      "body": "Pull back and look at the trail. Connectionism, then how a network represents meaning, then how it learns a concept — and then a leap, clean out of computer science, into a question philosophers have asked since antiquity. Not one step of it was a search. You don't go looking for the surprise; you follow one idea, honestly, and let it fling you somewhere you'd never have thought to look.",
+      "op": { "kind": "overview" },
+      "nextLabel": "End tour"
     }
   ]
 }
