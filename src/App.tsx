@@ -986,8 +986,12 @@ export default function App() {
       setReformSim(buildSimulation(view, { cluster, pinIds: pinCurrent() }))
       setLiveLayout(true)
     } else {
+      // Behind the doors: a FREE relayout — do NOT pin the current node. The camera
+      // re-anchors on it when the doors reopen, so there's no viewpoint to hold
+      // steady; pinning it would only strand it at its pre-regroup spot, outside
+      // its own cluster (its field-mates pull to a distant centroid without it).
       behindDoors(async (_s, v) => {
-        runForceLayout(v, { cluster, pinIds: pinCurrent() })
+        runForceLayout(v, { cluster })
         return () => setView({ ...v })
       })
     }
@@ -1280,10 +1284,12 @@ export default function App() {
           })
         }
         // Behind the doors: a `doors: true` snap, or turning grouping off — relayout
-        // hidden, opening onto the settled result.
+        // hidden, opening onto the settled result. Free relayout (no current-node
+        // pin): the camera re-anchors on reopen, so the current node settles inside
+        // its own cluster rather than being stranded at its pre-regroup spot.
         return behindDoorsAsync(async (_s, v) => {
           const cluster = op.on ? clusterOf(v) : undefined
-          runForceLayout(v, { cluster, pinIds: pinCurrent() })
+          runForceLayout(v, { cluster })
           return () => {
             setView({ ...v })
             applyFold()

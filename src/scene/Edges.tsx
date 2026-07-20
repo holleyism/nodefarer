@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef } from 'react'
 import { useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
 import type { Graph } from '../types'
@@ -267,6 +267,23 @@ export function Edges({ graph, currentId, highlightEdges, live = false, dimOther
       it.mat.uColor.copy(scratch).lerp(it.hlColor, it.hlF)
       const op = baseOp + (HIGHLIGHT_OP - baseOp) * it.hlF
       it.mat.uOpacity = op * (1 - (1 - DIM_KEEP) * it.dimF) * fade
+    }
+  })
+
+  // Apply the freshly-computed transforms to the meshes after each render. R3F
+  // won't re-apply position/quaternion/scale when we mutate the SAME cache objects
+  // in place (same reference → diffed as unchanged), so a non-live relayout — e.g.
+  // a nebula regroup behind the doors, which moves existing nodes with live=false —
+  // would otherwise leave every beam stranded at its mount-time transform while the
+  // nodes cluster away. The frame loop above owns the per-frame case during a live
+  // reform; this owns the per-render case. Runs once per render, allocation-free.
+  useLayoutEffect(() => {
+    for (const it of cache.current.values()) {
+      const m = meshes.current.get(it.id)
+      if (!m) continue
+      m.position.copy(it.mid)
+      m.quaternion.copy(it.quat)
+      m.scale.set(it.scale[0], it.scale[1], it.scale[2])
     }
   })
 
