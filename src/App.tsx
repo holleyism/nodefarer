@@ -144,7 +144,7 @@ export default function App() {
   const [nebulaCoverage, setNebulaCoverage] = useState(0.85)
   // When on, cross-field edges are dropped from the layout sim so each field
   // packs tightly around its centroid (no cross-galaxy tug on boundary nodes).
-  const [nebulaIsolate, setNebulaIsolate] = useState(false)
+  const [nebulaIsolate, setNebulaIsolate] = useState(true)
   const [watchReform, setWatchReform] = useState(false)
   // Fold/inspect nebulae (Plan H2b). `foldedGroups` = which groups are collapsed
   // to just their body (explicit, so "fold distant" is a one-shot action and a
