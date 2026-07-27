@@ -59,6 +59,7 @@ interface Props {
     instant?: boolean
     altitude?: number
     altitudeOnly?: boolean
+    reorient?: boolean
   } | null
   overviewSignal: number
   overviewPoints: [number, number, number][] | null

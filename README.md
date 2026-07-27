@@ -130,6 +130,50 @@ UX drives either source.
 
 ---
 
+## Demo mode (recording a promo clip)
+
+`?demo=1` plays a hands-off, **looping** product demo for a short screen capture. It
+keeps the full UI (viewport frame, HUD, node inspector) and drives the app's real
+mechanics on a fixed timeline — the interface is the thing being shown off. It's
+completely inert without the param; normal behaviour is unchanged.
+
+```
+http://localhost:5173/?demo=1
+```
+
+The loop (~30s) runs the app's actual handlers, not a canned video:
+
+1. Start on the hero node with the blast doors shut.
+2. Doors open; the node's inspector panel opens.
+3. Travel to an adjacent node, then back to the original.
+4. Inspector opens again.
+5. Cluster the graph into nebulae (fields → galaxies — the live reform animation).
+6. Reorient (orbit + gaze, same altitude) to bring several fields into view.
+7. Fold the distant fields into clouds (watched from that framing).
+8. Lock onto one of the framed fields and bloom it back open.
+9. Travel into that visible cluster.
+10. Look back toward the start.
+11. Doors close — and the loop resets and repeats, identically every time.
+
+**Recording (macOS):** size the browser window to roughly **1200×1200 px** (small,
+square — meant to be viewed muted and looped on a phone feed), load `?demo=1`, then
+`Cmd+Shift+5` → **Record Selected Portion** over the graph. The loop closes the doors
+between iterations, so any full cycle records as a clean seam. Reload to restart.
+
+**Tweaks** (all in [`src/demo/demoConfig.ts`](src/demo/demoConfig.ts)):
+
+- **Start node** — default is *"Attention Is All You Need"*; override per-recording
+  with `?demo=1&node=<id>`, or change `HERO_DEFAULT`.
+- **Neighbourhood size** — `ENTRY_MAX_NODES` bounds how much of the hero's
+  neighbourhood loads (keeps it readable, not a hairball).
+- **Pacing** — the `DEMO` dwell times (ms per beat). Travel flights and the nebula
+  reform take their own time on top, so the whole loop lands around 30s.
+
+Node layout is seeded (`seedDeterministicRandom`) in demo mode, so every loop and
+every take lays out identically.
+
+---
+
 ## Regenerating the demo bundle
 
 The bundle is produced by the Python ingest pipeline (OpenAlex → Neo4j →

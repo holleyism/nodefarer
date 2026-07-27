@@ -119,6 +119,10 @@ interface Props {
   nebulaHighlight: boolean
   onToggleNebulaHighlight: () => void
   tourActive: boolean
+  // Rising edge retracts whatever rail panel is open. The demo raises it at the
+  // loop seam so the doors don't shut over a stale panel (and the loop doesn't
+  // restart with the nebula inspector sitting open on its empty-state hint).
+  railClosed?: boolean
 }
 
 export function Hud({
@@ -202,6 +206,7 @@ export function Hud({
   nebulaHighlight,
   onToggleNebulaHighlight,
   tourActive,
+  railClosed,
 }: Props) {
   const traveling = destination !== null
   // Radar source: immediate neighbors of the current node. Future sources
@@ -244,6 +249,12 @@ export function Hud({
     if (plottedRoute.length > 1 && !traveling) setOpenId('course')
     else setOpenId((cur) => (cur === 'course' ? null : cur))
   }, [plottedRoute.length, traveling, tourActive])
+
+  // Demo loop seam: retract the rail as the doors come down. Declared LAST so it
+  // wins over the openers above in a commit where both fire.
+  useEffect(() => {
+    if (railClosed) setOpenId(null)
+  }, [railClosed])
 
   const handleOpenChange = (id: string | null) => {
     if (tourActive) return

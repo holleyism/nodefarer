@@ -121,6 +121,10 @@ interface Props {
     // (the flight owns stance/gaze; touching them here would wobble), so the ship
     // just descends to its travelling altitude. radiusAnim survives travel setup.
     altitudeOnly?: boolean
+    // Reorient in place: ease the orbit STANCE + gaze to look toward `destination`
+    // at the CURRENT radius (no dolly, altitude unchanged) — a scripted equivalent
+    // of orbit-dragging to bring an off-frame region into view.
+    reorient?: boolean
   } | null
   // Bumped to pull WAY back to an overview that frames every supplied point (the
   // whole journey corridor) — slerps the orientation + dollies out to a 3/4-from-
@@ -421,6 +425,38 @@ export function ShipCamera({ currentNode, targetNode, following, followSignal, r
     const n = currentRef.current
     const node = new THREE.Vector3(n.x!, n.y!, n.z!)
     const dest = new THREE.Vector3(frameTarget.destination[0], frameTarget.destination[1], frameTarget.destination[2])
+
+    // Reorient: keep the CURRENT orbit radius (no dolly). Ease the orbit STANCE so
+    // the camera sits toward `destination` (the node behind it, not occluding), and
+    // turn the gaze onto it — a "look over there" move that changes orbit position +
+    // view but not altitude. Used by the demo to bring folded fields into frame.
+    if (frameTarget.reorient) {
+      let up = dest.clone().sub(node)
+      if (up.lengthSq() < 1e-6) up = new THREE.Vector3(0, 1, 0)
+      up.normalize()
+      let xAxis = new THREE.Vector3().crossVectors(up, Y_AXIS)
+      if (xAxis.lengthSq() < 1e-6) xAxis = new THREE.Vector3(1, 0, 0)
+      xAxis.normalize()
+      const zAxis = new THREE.Vector3().crossVectors(xAxis, up).normalize()
+      const toStance = new THREE.Quaternion().setFromRotationMatrix(
+        new THREE.Matrix4().makeBasis(xAxis, up, zAxis),
+      )
+      const camPos = node.clone().addScaledVector(up, radius.current)
+      const fLocal = dest.clone().sub(camPos).normalize().applyQuaternion(toStance.clone().invert())
+      const yaw = Math.atan2(-fLocal.x, -fLocal.z)
+      const pitch = Math.asin(THREE.MathUtils.clamp(fLocal.y, -1, 1))
+      stanceAnim.current = { from: stance.current.clone(), to: toStance, t: 0, dur: 1.2 }
+      radiusAnim.current = null // altitude untouched
+      aim.current = {
+        t: 0,
+        fromYaw: look.current.yaw,
+        fromPitch: look.current.pitch,
+        toYaw: look.current.yaw + wrapPi(yaw - look.current.yaw),
+        toPitch: THREE.MathUtils.clamp(pitch, -1.45, 1.45),
+        duration: 1.2,
+      }
+      return
+    }
 
     // Altitude-only: ease just the orbit height, leaving stance + gaze for the
     // flight to own (no stance/gaze wobble before travelling).
@@ -858,6 +894,8 @@ export function ShipCamera({ currentNode, targetNode, following, followSignal, r
     camera.quaternion.copy(stance.current).multiply(qGaze)
     shipBus.position.copy(camera.position)
     shipBus.quaternion.copy(camera.quaternion)
+    shipBus.fov = camera.fov
+    shipBus.aspect = camera.aspect
   })
 
   return null

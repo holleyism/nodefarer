@@ -29,6 +29,9 @@ import { Hud } from './hud/Hud'
 import { MessageToast, type AppMessage } from './hud/MessageToast'
 import { TourPanel } from './hud/TourPanel'
 import { useTour, type TourExecutor } from './hud/useTour'
+import { readDemoConfig, seedDeterministicRandom, DEMO, ENTRY_MAX_NODES } from './demo/demoConfig'
+import { DemoCaption } from './demo/DemoCaption'
+import { shipBus, shipForward } from './scene/shipBus'
 
 interface BuiltSource {
   source: GraphSource
@@ -118,6 +121,9 @@ interface SnapState {
 }
 
 export default function App() {
+  // Demo mode (promotional capture) — inert unless `?demo=1`. Read once; every
+  // demo branch below is gated on `demo.enabled`, so normal mode is unaffected.
+  const demo = useMemo(() => readDemoConfig(), [])
   const sourceRef = useRef<GraphSource | null>(null)
   // The loaded Atlas: its `tours` drive the launcher catalog and its `anchors`
   // resolve `@name` references in tour steps (Plan G2).
@@ -249,13 +255,19 @@ export default function App() {
     // Ease only the altitude (radius), leaving stance + gaze alone — used before a
     // flight so the ship descends to its travelling altitude without a wobble.
     altitudeOnly?: boolean
+    // Reorient the orbit stance + gaze toward the destination at the CURRENT radius
+    // (no dolly) — the demo uses it to bring folded fields into frame.
+    reorient?: boolean
   } | null>(null)
   // Overview pull-back (tour recap): pull the camera back to frame a set of world
   // points (the whole journey corridor) at once.
   const [overviewSignal, setOverviewSignal] = useState(0)
   const [overviewPoints, setOverviewPoints] = useState<[number, number, number][] | null>(null)
-  // Blast doors: shut the window while the universe is being (re)laid out.
-  const [doorsClosed, setDoorsClosed] = useState(false)
+  // Blast doors: shut the window while the universe is being (re)laid out. Demo
+  // mode opens with them shut, so the auto-tour lands its first frame behind them.
+  const [doorsClosed, setDoorsClosed] = useState(demo.enabled)
+  // Demo narration: the caption for the beat currently playing (null = no line).
+  const [demoCaption, setDemoCaption] = useState<string | null>(null)
   // Bottom-left status/error readout.
   const [message, setMessage] = useState<AppMessage | null>(null)
   const msgId = useRef(0)
@@ -369,6 +381,9 @@ export default function App() {
   // switching happens in switchUniverse (Plan G4).
   useEffect(() => {
     let cancelled = false
+    // Seed the layout RNG before any positions are computed, so demo takes are
+    // identical across reloads (see seedDeterministicRandom).
+    if (demo.enabled) seedDeterministicRandom()
     ;(async () => {
       const { source, atlas, view: v, store } = await buildSource(loadSourceChoice())
       if (cancelled) return
@@ -393,7 +408,7 @@ export default function App() {
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [demo])
 
   // Append a travelled path to the accumulated journey corridor (nodes + the
   // edges between consecutive stops), so it stays visible/lit as the tour builds.
@@ -1556,6 +1571,476 @@ export default function App() {
   // Latest assignment for the arrival effect (which keys only off currentId).
   const groupAssignRef = useRef(groupAssign)
   groupAssignRef.current = groupAssign
+  // The nebula bodies as DRAWN (centre + radius). Declared here, assigned below
+  // where `nebulae` is computed — the demo reads it to pick the cloud that
+  // actually fills the frame, which member centroids alone can't tell you.
+  const nebulaeRef = useRef<NebulaBody[]>([])
+
+  // ── Demo mode: looping auto-tour ─────────────────────────────────────────────
+  // A scripted, auto-advancing sequence that drives the app's REAL handlers (doors,
+  // travel, nebula clustering/folding, the inspector) with the full HUD on screen —
+  // a hands-off product demo for a short screen capture. Inert unless `?demo=1`.
+  //
+  // Like the guided-tour engine, actions are read from a ref that's reassigned every
+  // render (below), so each awaited step calls the LATEST handler closure (fresh
+  // state) rather than a stale one captured when the loop started. Dynamic targets
+  // (which neighbour / which nebula) are picked deterministically from live refs, so
+  // every loop iteration and every take is identical.
+  const foldedGroupsRef = useRef(foldedGroups)
+  foldedGroupsRef.current = foldedGroups
+  const demoApiRef = useRef<{
+    resetTo: typeof resetTo
+    travelTo: typeof travelTo
+    runOp: typeof runOp
+    setSelectedId: typeof setSelectedId
+    clearEdges: typeof clearEdges
+    setDoorsClosed: typeof setDoorsClosed
+    handleFoldDistant: typeof handleFoldDistant
+    setFocusedNebula: typeof setFocusedNebula
+    handleSetNebulaFolded: typeof handleSetNebulaFolded
+    setNebulaOn: typeof setNebulaOn
+    setFoldedGroups: typeof setFoldedGroups
+    setFrameTarget: typeof setFrameTarget
+    setFrameSignal: typeof setFrameSignal
+  } | null>(null)
+  demoApiRef.current = {
+    resetTo,
+    travelTo,
+    runOp,
+    setSelectedId,
+    clearEdges,
+    setDoorsClosed,
+    handleFoldDistant,
+    setFocusedNebula,
+    handleSetNebulaFolded,
+    setNebulaOn,
+    setFoldedGroups,
+    setFrameTarget,
+    setFrameSignal,
+  }
+
+  useEffect(() => {
+    if (!demo.enabled) return
+    let cancelled = false
+    let wake: (() => void) | null = null
+    // Cancellable dwell (resolves early if the loop is torn down).
+    const sleep = (ms: number) =>
+      new Promise<void>((resolve) => {
+        const t = setTimeout(() => {
+          wake = null
+          resolve()
+        }, ms)
+        wake = () => {
+          clearTimeout(t)
+          resolve()
+        }
+      })
+
+    // How far left of the hero the closing "look back" beat aims (degrees, yawed
+    // about world up).
+    const FINAL_LOOK_LEFT_DEG = 36
+
+    // Small vector helpers (plain arrays — no THREE dependency here).
+    type V3 = [number, number, number]
+    const sub = (a: V3, b: V3): V3 => [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
+    const dot = (a: V3, b: V3) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
+    const clamp1 = (v: number) => Math.max(-1, Math.min(1, v))
+    const norm = (v: V3): V3 => {
+      const L = Math.hypot(v[0], v[1], v[2]) || 1
+      return [v[0] / L, v[1] / L, v[2] / L]
+    }
+    const centroidOf = (mem: GraphNode[]): V3 | null => {
+      let x = 0, y = 0, z = 0, k = 0
+      for (const n of mem) {
+        if (n.x == null || n.y == null || n.z == null) continue
+        x += n.x; y += n.y; z += n.z; k++
+      }
+      return k ? [x / k, y / k, z / k] : null
+    }
+    const nodePos = (): V3 | null => {
+      const v = viewRef.current
+      const cn = v && currentIdRef.current ? v.nodeById.get(currentIdRef.current) : null
+      return cn?.x != null ? [cn.x, cn.y!, cn.z!] : null
+    }
+    // The viewing direction the reorient beat aimed at (unit vector from the current
+    // node), so later steps can lock onto / travel to a cloud that's on screen.
+    let viewAimDir: V3 | null = null
+    // The field locked onto in the "focus" beat, shared with the unfold + travel beats.
+    let focusedKey: string | null = null
+
+    // ── Deterministic target picks (read live refs, never stale) ──────────────
+    const membersByGroup = () => {
+      const ga = groupAssignRef.current
+      const v = viewRef.current
+      const m = new Map<string, GraphNode[]>()
+      if (!ga || !v) return m
+      for (const n of v.nodes) {
+        const k = ga.get(n.id)
+        if (k == null) continue
+        const arr = m.get(k)
+        if (arr) arr.push(n)
+        else m.set(k, [n])
+      }
+      return m
+    }
+    const currentGroup = () => {
+      const cid = currentIdRef.current
+      return cid ? groupAssignRef.current?.get(cid) ?? null : null
+    }
+    // Highest-PageRank placed neighbour of the current node.
+    const pickNeighbor = () => {
+      const v = viewRef.current
+      const cid = currentIdRef.current
+      if (!v || !cid) return null
+      const cands = (v.neighbors.get(cid) ?? [])
+        .map((id) => v.nodeById.get(id))
+        .filter((n): n is GraphNode => n != null && n.x != null)
+        .sort((a, b) => (b.pagerank ?? 0) - (a.pagerank ?? 0))
+      return cands[0]?.id ?? null
+    }
+    // ── What the ship can actually see, straight off the live camera ─────────
+    // Earlier attempts scored clouds against the demo's OWN idea of where the
+    // camera points (the reorient beat's aim, measured from the node). The ship
+    // orbits at altitude and the gaze animates, so that model drifts from the real
+    // shot. shipBus carries the true pose + lens, so ask it instead.
+    const halfFov = () => ((shipBus.fov / 2) * Math.PI) / 180 // vertical: the tighter half-angle
+    const camPos = (): V3 => [shipBus.position.x, shipBus.position.y, shipBus.position.z]
+    // Where a point sits relative to the centre of frame: 0 = dead-centre,
+    // halfFov() = on the frame edge, > π/2 = behind the ship.
+    const offAxisOf = (p: V3) => {
+      const d = sub(p, camPos())
+      if (Math.hypot(d[0], d[1], d[2]) < 1e-6) return 0
+      return Math.acos(clamp1(dot(shipForward(), norm(d))))
+    }
+    const foldedBodies = () => {
+      const folded = foldedGroupsRef.current
+      const cur = currentGroup()
+      return nebulaeRef.current.filter((b) => folded.has(b.key) && b.key !== cur)
+    }
+    // `?demo=1&debug=1`: what the camera saw, per cloud — off-axis angle vs the
+    // frame's half-FOV, apparent size, distance. In frame ⇔ off − size ≤ halfFov.
+    const deg = (r: number) => `${(r * (180 / Math.PI)).toFixed(0)}°`
+    const dlog = (label: string, picked: string | null) => {
+      if (!demo.debug) return
+      const rows = foldedBodies().map((b) => {
+        const d = sub(b.center as V3, camPos())
+        const dist = Math.hypot(d[0], d[1], d[2]) || 1e-6
+        return {
+          key: b.key,
+          off: deg(offAxisOf(b.center as V3)),
+          size: deg(Math.atan2(Math.min(b.radius, dist * 0.999), dist)),
+          dist: dist.toFixed(0),
+          picked: b.key === picked,
+        }
+      })
+      console.log(`[demo] ${label} — halfFov ${deg(halfFov())}, picked ${picked ?? 'none'}`)
+      console.table(rows)
+    }
+    const bodyOf = (key: string): { key: string; center: V3 } | null => {
+      const b = nebulaeRef.current.find((x) => x.key === key)
+      return b ? { key, center: b.center as V3 } : null
+    }
+    // The folded field a viewer would call "the one on screen": largest apparent
+    // disc among those inside the FOV cone. If nothing is framed we still return
+    // the least off-axis cloud — the lock beat turns to whatever it picks, so an
+    // off-screen pick is fine as long as the turn lands (beat 9 checks that it did).
+    const pickFoldedNebula = (): { key: string; center: V3 } | null => {
+      const bodies = foldedBodies()
+      if (!bodies.length) return null
+      const cone = halfFov()
+      let framed: { key: string; center: V3 } | null = null
+      let framedR = -Infinity
+      let nearest: { key: string; center: V3 } | null = null
+      let nearestOff = Infinity
+      for (const b of bodies) {
+        const c = b.center as V3
+        const d = sub(c, camPos())
+        const dist = Math.hypot(d[0], d[1], d[2]) || 1e-6
+        const angRadius = Math.atan2(Math.min(b.radius, dist * 0.999), dist)
+        const off = offAxisOf(c)
+        const hit = { key: b.key, center: c }
+        if (off < nearestOff) {
+          nearestOff = off
+          nearest = hit
+        }
+        // On the glass: the disc overlaps the cone. Biggest such disc wins.
+        if (off - angRadius <= cone && angRadius > framedR) {
+          framedR = angRadius
+          framed = hit
+        }
+      }
+      return framed ?? nearest
+    }
+    // A field's most prominent placed member (to look toward / travel to).
+    const repNode = (key: string) => {
+      const mem = (membersByGroup().get(key) ?? [])
+        .filter((n) => n.x != null)
+        .sort((a, b) => (b.pagerank ?? 0) - (a.pagerank ?? 0))
+      return mem[0]?.id ?? null
+    }
+    // A prominent node in a VISIBLE cluster to travel into — the focused/unfolded
+    // field if we have one, else the non-current cluster best aligned with the view
+    // aim (so the destination is a cloud that's actually on screen).
+    const pickVisibleClusterNode = () => {
+      if (focusedKey) {
+        const rep = repNode(focusedKey)
+        if (rep) return rep
+      }
+      const cur = currentGroup()
+      const np = nodePos()
+      let bestKey: string | null = null
+      let bestAlign = -Infinity
+      let bestN = -1
+      for (const [k, mem] of membersByGroup()) {
+        if (k === cur) continue
+        const c = centroidOf(mem)
+        if (viewAimDir && np && c) {
+          const align = dot(viewAimDir, norm(sub(c, np)))
+          if (align > bestAlign) { bestAlign = align; bestKey = k }
+        } else if (mem.length > bestN) {
+          bestN = mem.length
+          bestKey = k
+        }
+      }
+      return bestKey ? repNode(bestKey) : null
+    }
+
+    // ── The 12-beat script (each: run the action, narrate it, then dwell) ─────
+    // `caption` is the narration line shown while the beat plays (see DemoCaption);
+    // omit it for beats that should play silent, like the doors-shut loop seam.
+    const steps: { run: () => Promise<void> | void; dwell: number; caption?: string }[] = [
+      // 12 → 1: seam. Reset clustering/selection and shut the doors (held closed —
+      // this is the loop-back point). The dwell also lets the resets commit before
+      // the land below reads them.
+      {
+        run: () => {
+          const a = demoApiRef.current!
+          a.setSelectedId(null)
+          a.clearEdges()
+          a.setNebulaOn(false)
+          a.setFoldedGroups(new Set())
+          a.setFocusedNebula(null)
+          a.setDoorsClosed(true)
+          focusedKey = null
+        },
+        dwell: DEMO.DOORS_SHUT,
+      },
+      // 1: land on the hero behind the shut doors; they reopen onto the fresh graph.
+      {
+        run: () => demoApiRef.current!.resetTo({ mode: 'node', id: demo.heroId, maxNodes: ENTRY_MAX_NODES }),
+        dwell: DEMO.AFTER_LAND,
+        caption: "You don't look at the graph. You stand in it.",
+      },
+      // 2: open the current node's inspector.
+      {
+        run: () => {
+          const cid = currentIdRef.current
+          if (cid) demoApiRef.current!.setSelectedId(cid)
+        },
+        dwell: DEMO.INSPECT,
+        caption: 'Inspect anything without losing your place.',
+      },
+      // 4: travel to the top adjacent node (egocentric re-centre), then look back
+      //    toward the original node — its dense neighbourhood fills the frame,
+      //    rather than the empty space past the new node.
+      {
+        run: async () => {
+          const nb = pickNeighbor()
+          if (nb) {
+            await demoApiRef.current!.travelTo(nb)
+            await demoApiRef.current!.runOp({ kind: 'look', focus: demo.heroId })
+          }
+        },
+        dwell: DEMO.AFTER_TRAVEL,
+        caption: 'Fly an edge — the universe re-centers on where you land.',
+      },
+      // 5: open the inspector on the NEW (arrived) node.
+      {
+        run: () => {
+          const cid = currentIdRef.current
+          if (cid) demoApiRef.current!.setSelectedId(cid)
+        },
+        dwell: DEMO.INSPECT,
+        caption: 'Every hop is a new vantage point.',
+      },
+      // 6: cluster into nebulae (the live reform animation).
+      {
+        run: () => demoApiRef.current!.runOp({ kind: 'nebula', on: true }),
+        dwell: DEMO.AFTER_CLUSTER,
+        caption: 'Cluster the neighborhood — structure, not a hairball.',
+      },
+      // 6b: reorient to bring SEVERAL fields fully into frame — WITHOUT changing
+      //     altitude (dollying out just lands on a fogged, blank screen). Whether
+      //     clouds fit is about DIRECTION, not distance (the camera sits ~on the
+      //     node): so we search for the viewing direction with the densest group of
+      //     fields within a tight cone and aim there — they cluster near the centre
+      //     of frame instead of clipping the edges. Pure orbit + gaze, fixed radius,
+      //     like orbit-dragging by hand. Runs BEFORE the fold, so we watch the very
+      //     fields we've framed collapse into clouds.
+      {
+        run: () => {
+          const cur = currentGroup()
+          const np = nodePos()
+          if (!np) return
+          const dirs: V3[] = []
+          for (const [k, mem] of membersByGroup()) {
+            if (k === cur) continue // every OTHER field is drawn as a cloud body
+            const c = centroidOf(mem)
+            if (c) dirs.push(norm(sub(c, np)))
+          }
+          if (dirs.length === 0) return
+          const COS_GROUP = Math.cos((38 * Math.PI) / 180) // clouds this close count as a group
+          const COS_TIGHT = Math.cos((22 * Math.PI) / 180) // ...and sit comfortably inside the FOV
+          let aim = dirs[0]
+          let bestCount = -1
+          let bestTight = Infinity
+          for (const seed of dirs) {
+            // Re-centre on the mean of the clouds near this seed, then score how many
+            // land tightly around that mean.
+            let mx = 0, my = 0, mz = 0
+            for (const d of dirs) if (dot(seed, d) >= COS_GROUP) { mx += d[0]; my += d[1]; mz += d[2] }
+            const mean = norm([mx, my, mz])
+            let count = 0, tight = 0
+            for (const d of dirs) {
+              const dp = dot(mean, d)
+              if (dp >= COS_TIGHT) { count++; tight += 1 - dp }
+            }
+            if (count > bestCount || (count === bestCount && tight < bestTight)) {
+              bestCount = count
+              bestTight = tight
+              aim = mean
+            }
+          }
+          viewAimDir = aim
+          const dest: V3 = [np[0] + aim[0] * 200, np[1] + aim[1] * 200, np[2] + aim[2] * 200]
+          demoApiRef.current!.setFrameTarget({ points: [], destination: dest, reorient: true })
+          demoApiRef.current!.setFrameSignal((s) => s + 1)
+        },
+        dwell: DEMO.FRAME_FIELDS,
+        caption: 'Each cloud is a community of related work.',
+      },
+      // 7: fold every distant field to its cloud — watched from the framing above.
+      {
+        run: () => {
+          demoApiRef.current!.setSelectedId(null)
+          demoApiRef.current!.handleFoldDistant()
+        },
+        dwell: DEMO.AFTER_FOLD,
+        caption: 'Fold the distant fields away to clear the view.',
+      },
+      // 8: lock onto the field that fills the frame and get a CLEAR look at its
+      //    cloud. Turning the gaze alone isn't enough: the ship orbits the current
+      //    node, so if the cloud lies past the node we end up staring straight at
+      //    our own node with the cloud hidden behind it. `reorient` moves the orbit
+      //    stance round to the cloud's side first (node behind the camera, altitude
+      //    unchanged) and then aims — the same move beat 6b uses to frame fields.
+      {
+        run: () => {
+          const pick = pickFoldedNebula()
+          focusedKey = pick?.key ?? null
+          if (!pick) return
+          const a = demoApiRef.current!
+          a.setFocusedNebula(pick.key)
+          a.setFrameTarget({ points: [], destination: pick.center, reorient: true })
+          a.setFrameSignal((f) => f + 1)
+          dlog('lock', pick.key)
+          // Keep the aim in sync, so the later travel beat picks this same cloud.
+          const np = nodePos()
+          if (np) viewAimDir = norm(sub(pick.center, np))
+        },
+        dwell: DEMO.AFTER_FOCUS,
+        caption: 'Lock onto one field…',
+      },
+      // 9: bloom that single field back open — but only after CHECKING, against the
+      //    live camera, that it really is the cloud on screen. The lock beat's turn
+      //    can be cancelled or land short (a flight still settling, a competing
+      //    camera move), and blooming a field the viewer can't see is the one thing
+      //    this beat must never do. So: re-pick from the settled camera, and if the
+      //    target still sits outside the frame, turn to it and wait before blooming.
+      {
+        run: async () => {
+          const a = demoApiRef.current!
+          let pick = pickFoldedNebula() ?? (focusedKey ? bodyOf(focusedKey) : null)
+          if (!pick) return
+          dlog('bloom', pick.key)
+          if (offAxisOf(pick.center) > halfFov() * 0.7) {
+            // Orbit round to the cloud's side AND aim there (reorient does both), so
+            // the correction can't leave us framing the near side of our own node.
+            a.setFrameTarget({ points: [], destination: pick.center, reorient: true })
+            a.setFrameSignal((f) => f + 1)
+            await sleep(1500) // the stance ease runs 1.2s
+            pick = pickFoldedNebula() ?? pick
+          }
+          focusedKey = pick.key
+          a.setFocusedNebula(pick.key)
+          a.handleSetNebulaFolded(pick.key, false)
+          // Keep the aim in sync so the travel beat heads into this same field.
+          const np = nodePos()
+          if (np) viewAimDir = norm(sub(pick.center, np))
+        },
+        dwell: DEMO.AFTER_UNFOLD,
+        caption: '…and bloom it open to see what lives inside.',
+      },
+      // 10: travel into a VISIBLE cluster — the field we just unfolded (its nodes are
+      //     on screen), so the destination is somewhere the viewer can see, not an
+      //     off-screen fold.
+      {
+        run: async () => {
+          const dest = pickVisibleClusterNode()
+          if (dest) await demoApiRef.current!.travelTo(dest)
+        },
+        dwell: DEMO.AFTER_TRAVEL,
+        caption: 'Then travel into it — a new neighborhood, same two controls.',
+      },
+      // 11: look back toward where we started — but swung ~36° to the LEFT of the
+      //     hero, so the closing frame sits off-axis rather than dead-on. Same aim
+      //     distance, just yawed about world up; falls back to the plain look-back
+      //     if positions aren't available.
+      {
+        run: () => {
+          const a = demoApiRef.current!
+          const np = nodePos()
+          const hero = viewRef.current?.nodeById.get(demo.heroId)
+          if (!np || hero?.x == null) return a.runOp({ kind: 'look', focus: demo.heroId })
+          const d = sub([hero.x!, hero.y!, hero.z!], np)
+          const th = (FINAL_LOOK_LEFT_DEG * Math.PI) / 180
+          const c = Math.cos(th)
+          const s = Math.sin(th)
+          const dest: V3 = [np[0] + d[0] * c + d[2] * s, np[1] + d[1], np[2] - d[0] * s + d[2] * c]
+          a.setFrameTarget({ points: [dest], destination: dest, zoom: false })
+          a.setFrameSignal((f) => f + 1)
+        },
+        dwell: DEMO.LOOK_BACK,
+        caption: 'Look back — the trail you flew is still lit.',
+      },
+    ]
+
+    ;(async () => {
+      // Wait for the initial view before scripting anything.
+      while (!cancelled && viewRef.current == null) await sleep(120)
+      while (!cancelled) {
+        for (const step of steps) {
+          if (cancelled) break
+          // Narrate the beat as it starts (captions crossfade themselves).
+          setDemoCaption(step.caption ?? null)
+          try {
+            await step.run()
+          } catch (err) {
+            console.warn('demo step failed:', err)
+          }
+          if (cancelled) break
+          await sleep(step.dwell)
+        }
+      }
+    })()
+
+    return () => {
+      cancelled = true
+      wake?.()
+      setDemoCaption(null)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [demo.enabled])
 
   // Volumetric nebula bodies for the scene (Plan H2): each group's centre +
   // radius from the laid-out positions. Computed over the FULL view so a folded
@@ -1610,6 +2095,7 @@ export default function App() {
     // change ref on every relayout, which is what should retrigger this.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [nebulaOn, groupStrength, nebulaCoverage, view, groupAssign])
+  nebulaeRef.current = nebulae
 
   // Arriving in a nebula blooms it open (remove from folded) and refocuses the
   // inspector on it (Plan H2b hero beat).
@@ -1960,6 +2446,9 @@ export default function App() {
         nebulaHighlight={highlightNebula}
         onToggleNebulaHighlight={() => setHighlightNebula((v) => !v)}
         tourActive={tour.tour !== null}
+        // Demo only: the loop seam shuts the doors, so retract the rail with them
+        // rather than looping back with a stale panel open behind the glass.
+        railClosed={demo.enabled && doorsClosed}
       />
       <TourPanel
         step={tour.tour ? tour.tour.steps[tour.index] : null}
@@ -1971,6 +2460,7 @@ export default function App() {
         onQuit={tour.quit}
       />
       <MessageToast message={message} onDismiss={() => setMessage(null)} />
+      {demo.enabled && <DemoCaption text={doorsClosed ? null : demoCaption} />}
     </Box>
   )
 }
